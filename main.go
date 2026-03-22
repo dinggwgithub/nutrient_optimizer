@@ -44,6 +44,7 @@ func main() {
 	api := r.Group("/api")
 	{
 		api.POST("/optimize-with-bugs", optimizeWithBugsHandler)
+		api.POST("/optimize-with-bugs-fixed", optimizeWithBugsFixedHandler)
 		api.POST("/optimize-moead", optimizeMOEADHandler)
 		api.GET("/health", healthHandler)
 		api.GET("/ingredients", getIngredientsHandler)
@@ -194,17 +195,17 @@ func getIngredientsHandler(c *gin.Context) {
 	if l := c.Query("limit"); l != "" {
 		fmt.Sscanf(l, "%d", &limit)
 	}
-	
+
 	source := c.DefaultQuery("source", "db")
 	filepath := c.DefaultQuery("filepath", "ingredients_db_export.json")
 
 	optimizer := NewMOEADOptimizer(10, 10)
 	defer optimizer.CloseDB()
-	
+
 	var ingredients []Ingredient
 	var err error
 	var sourceUsed string
-	
+
 	if source == "json" {
 		ingredients, err = optimizer.LoadIngredientsFromJSON(filepath)
 		sourceUsed = "JSON文件"
@@ -212,7 +213,7 @@ func getIngredientsHandler(c *gin.Context) {
 		ingredients, err = optimizer.LoadIngredientsFromDB(limit)
 		sourceUsed = "数据库"
 	}
-	
+
 	if err != nil {
 		// 如果数据库失败，尝试从JSON文件加载
 		if source == "db" {
@@ -232,4 +233,69 @@ func getIngredientsHandler(c *gin.Context) {
 		"source":      sourceUsed,
 		"ingredients": ingredients,
 	})
+}
+
+// OptimizeWithBugsFixed 修复Bug后的优化
+// @Summary 修复Bug后的优化（数值溢出修复）
+// @Description 使用修复后的优化器进行营养配餐优化，专门解决numerical_overflow类型的数值溢出问题，支持A/B测试对比
+// @Tags 优化算法
+// @Accept json
+// @Produce json
+// @Param ab_test query bool false "是否启用A/B测试（同时返回原Bug结果和修复结果，用于对比）" default(false)
+// @Param request body OptimizationRequest true "优化请求参数"
+// @Success 200 {object} map[string]interface{} "优化结果（含修复报告和A/B测试数据）"
+// @Failure 400 {object} map[string]interface{} "请求参数错误"
+// @Failure 500 {object} map[string]interface{} "服务器内部错误"
+// @Router /optimize-with-bugs-fixed [post]
+func optimizeWithBugsFixedHandler(c *gin.Context) {
+	var req OptimizationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 是否启用A/B测试
+	abTest := false
+	if ab := c.Query("ab_test"); ab == "true" || ab == "1" {
+		abTest = true
+	}
+
+	// 使用修复后的优化器
+	fixedOptimizer := NewFixedOptimizer()
+	fixedResult, fixReport, err := fixedOptimizer.OptimizeAndFix(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 构建响应
+	response := gin.H{
+		"fixed_result": fixedResult,
+		"fix_report":   fixReport,
+		"warnings":     fixedOptimizer.GetWarnings(),
+		"is_fixed":     true,
+		"fix_version":  "1.0.0",
+		"fix_type":     "numerical_overflow",
+	}
+
+	// 如果启用A/B测试，同时获取原Bug版本的结果
+	if abTest {
+		buggyOptimizer := NewBuggyOptimizer(BugTypeNumericalOverflow)
+		buggyResult, err := buggyOptimizer.Optimize(req)
+		if err == nil {
+			response["ab_test"] = gin.H{
+				"enabled":      true,
+				"buggy_result": buggyResult,
+				"fixed_result": fixedResult,
+				"comparison": gin.H{
+					"buggy_has_error": buggyResult.Error != "",
+					"fixed_has_error": fixedResult.Error != "",
+					"issues_fixed":    fixReport.TotalFixed,
+					"buggy_warnings":  buggyOptimizer.GetWarnings(),
+				},
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, response)
 }

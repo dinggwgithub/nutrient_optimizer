@@ -225,6 +225,62 @@
                     }
                 }
             }
+        },
+        "/optimize-with-bugs-fixed": {
+            "post": {
+                "description": "使用修复后的优化器进行营养配餐优化，专门解决numerical_overflow类型的数值溢出问题，支持A/B测试对比",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "优化算法"
+                ],
+                "summary": "修复Bug后的优化（数值溢出修复）",
+                "parameters": [
+                    {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "是否启用A/B测试（同时返回原Bug结果和修复结果，用于对比）",
+                        "name": "ab_test",
+                        "in": "query"
+                    },
+                    {
+                        "description": "优化请求参数",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/main.OptimizationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "优化结果（含修复报告和A/B测试数据）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "服务器内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -334,6 +390,41 @@
                     "description": "权重",
                     "type": "number",
                     "example": 0.3
+                }
+            }
+        },
+        "main.OptimizationRequest": {
+            "type": "object",
+            "properties": {
+                "constraints": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/main.Constraint"
+                    }
+                },
+                "ingredients": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/main.Ingredient"
+                    }
+                },
+                "max_iterations": {
+                    "type": "integer"
+                },
+                "nutrition_goals": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/main.NutritionGoal"
+                    }
+                },
+                "tolerance": {
+                    "type": "number"
+                },
+                "weights": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/main.Weight"
+                    }
                 }
             }
         },
