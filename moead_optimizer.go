@@ -228,10 +228,19 @@ func (o *MOEADOptimizer) createIndividual(numIngredients int, req OptimizationRe
 	amounts := make([]float64, numIngredients)
 	totalWeight := 0.0
 
-	// 随机初始化食材用量
+	// 随机初始化食材用量，考虑最小值约束
 	for i := range amounts {
-		// 每个食材初始用量在0-100g之间
-		amounts[i] = rand.Float64() * 100
+		// 检查是否有最小值约束
+		minAmount := 0.0
+		for _, c := range req.Constraints {
+			if c.Type == "ingredient_min" && c.IngredientID == i+1 {
+				minAmount = c.Value
+				break
+			}
+		}
+		// 初始值在minAmount到100g之间
+		amounts[i] = minAmount + rand.Float64()*(100-minAmount)
+		amounts[i] = math.Max(0, math.Min(500, amounts[i]))
 		totalWeight += amounts[i]
 	}
 
@@ -242,7 +251,7 @@ func (o *MOEADOptimizer) createIndividual(numIngredients int, req OptimizationRe
 		for i := range amounts {
 			amounts[i] *= ratio
 			// 确保在合理范围内 (0-500g)
-			amounts[i] = math.Max(0, math.Min(500, amounts[i]))
+			amounts[i] = clampAmount(amounts[i], req, i+1)
 		}
 	}
 
@@ -253,10 +262,44 @@ func (o *MOEADOptimizer) createIndividual(numIngredients int, req OptimizationRe
 func (o *MOEADOptimizer) getTotalWeightConstraint(req OptimizationRequest) float64 {
 	for _, c := range req.Constraints {
 		if c.Type == "total_weight" {
-			return c.Value
+			return math.Max(10, math.Min(2000, c.Value)) // 合理范围：10g-2000g
 		}
 	}
 	return 400.0 // 默认值
+}
+
+// clampAmount 限制用量在合理范围（0-500g）
+func clampAmount(amount float64, req OptimizationRequest, ingredientID int) float64 {
+	// 硬约束：0-500g
+	minAmount := 0.0
+	maxAmount := 500.0
+
+	// 检查用户定义的约束
+	for _, c := range req.Constraints {
+		if c.IngredientID == ingredientID {
+			switch c.Type {
+			case "ingredient_min":
+				minAmount = math.Max(minAmount, c.Value)
+			case "ingredient_max":
+				maxAmount = math.Min(maxAmount, c.Value)
+			}
+		}
+	}
+
+	// 确保范围有效
+	if minAmount > maxAmount {
+		minAmount = maxAmount // 避免矛盾约束
+	}
+
+	// 确保不超出硬约束
+	minAmount = math.Max(0, minAmount)
+	maxAmount = math.Min(500, maxAmount)
+
+	// 应用约束
+	result := math.Max(minAmount, math.Min(maxAmount, amount))
+
+	// 避免负值
+	return math.Max(0, result)
 }
 
 // evaluateIndividual 评估个体的目标函数值
@@ -690,11 +733,13 @@ func (o *MOEADOptimizer) generateResult(ind *Individual, ingredients []Ingredien
 		Warnings:    make([]string, 0),
 	}
 
-	// 构建食材用量列表（过滤用量接近0的食材）
+	// 构建食材用量列表（过滤用量接近0的食材，并验证约束）
 	for i, amount := range ind.Amounts {
 		if i >= len(ingredients) {
 			break
 		}
+		// 应用约束并验证
+		amount = clampAmount(amount, req, i+1)
 		if amount > 0.1 { // 只保留用量大于0.1g的食材
 			result.Ingredients = append(result.Ingredients, IngredientAmount{
 				Ingredient: ingredients[i],
@@ -703,11 +748,15 @@ func (o *MOEADOptimizer) generateResult(ind *Individual, ingredients []Ingredien
 		}
 	}
 
-	// 计算营养汇总
+	// 计算营养汇总并验证
 	result.Nutrition = o.calculateNutrition(ind.Amounts, ingredients)
+	validateAndFixNutrition(&result.Nutrition, &result.Warnings)
 
 	// 计算成本
 	result.Cost = roundToTwoDecimals(o.calculateTotalCost(ind.Amounts, ingredients))
+
+	// 验证食材用量
+	validateIngredientAmounts(result.Ingredients, &result.Warnings)
 
 	// 添加多样性警告
 	diversity := 1.0 - ind.Objectives[2]
@@ -716,6 +765,79 @@ func (o *MOEADOptimizer) generateResult(ind *Individual, ingredients []Ingredien
 	}
 
 	return result
+}
+
+// validateAndFixNutrition 验证并修复营养值
+func validateAndFixNutrition(nutrition *NutritionSummary, warnings *[]string) {
+	nutrition.Energy = fixValue(nutrition.Energy, warnings, "能量")
+	nutrition.Protein = fixValue(nutrition.Protein, warnings, "蛋白质")
+	nutrition.Fat = fixValue(nutrition.Fat, warnings, "脂肪")
+	nutrition.Carbs = fixValue(nutrition.Carbs, warnings, "碳水")
+	nutrition.Calcium = fixValue(nutrition.Calcium, warnings, "钙")
+	nutrition.Iron = fixValue(nutrition.Iron, warnings, "铁")
+	nutrition.Zinc = fixValue(nutrition.Zinc, warnings, "锌")
+	nutrition.VitaminC = fixValue(nutrition.VitaminC, warnings, "维生素C")
+
+	// 四舍五入到合理精度
+	roundNutritionSummary(nutrition)
+}
+
+// validateIngredientAmounts 验证食材用量
+func validateIngredientAmounts(ingredients []IngredientAmount, warnings *[]string) {
+	for i := range ingredients {
+		amount := &ingredients[i].Amount
+		*amount = fixAmount(*amount, warnings, ingredients[i].Name)
+	}
+}
+
+// fixValue 修复数值异常
+func fixValue(x float64, warnings *[]string, name string) float64 {
+	if math.IsNaN(x) {
+		*warnings = append(*warnings, fmt.Sprintf("%s计算结果为NaN，已修正为0", name))
+		return 0
+	}
+	if math.IsInf(x, 1) {
+		*warnings = append(*warnings, fmt.Sprintf("%s计算结果为正无穷，已修正为最大值", name))
+		return 1e6
+	}
+	if math.IsInf(x, -1) {
+		*warnings = append(*warnings, fmt.Sprintf("%s计算结果为负无穷，已修正为0", name))
+		return 0
+	}
+	if x < 0 {
+		*warnings = append(*warnings, fmt.Sprintf("%s计算结果为负数(%.2f)，已修正为0", name, x))
+		return 0
+	}
+	if x > 1e6 {
+		*warnings = append(*warnings, fmt.Sprintf("%s计算结果过大(%.2f)，已修正为最大值", name, x))
+		return 1e6
+	}
+	return x
+}
+
+// fixAmount 修复用量异常
+func fixAmount(x float64, warnings *[]string, name string) float64 {
+	fixed := fixValue(x, warnings, name+"用量")
+	if fixed < 0 {
+		fixed = 0
+	}
+	if fixed > 500 {
+		*warnings = append(*warnings, fmt.Sprintf("%s用量(%.2fg)超过500g限制，已修正", name, fixed))
+		fixed = 500
+	}
+	return roundToTwoDecimals(fixed)
+}
+
+// roundNutritionSummary 四舍五入营养汇总值
+func roundNutritionSummary(n *NutritionSummary) {
+	n.Energy = roundToTwoDecimals(n.Energy)
+	n.Protein = roundToTwoDecimals(n.Protein)
+	n.Fat = roundToTwoDecimals(n.Fat)
+	n.Carbs = roundToTwoDecimals(n.Carbs)
+	n.Calcium = roundToTwoDecimals(n.Calcium)
+	n.Iron = roundToTwoDecimals(n.Iron)
+	n.Zinc = roundToTwoDecimals(n.Zinc)
+	n.VitaminC = roundToTwoDecimals(n.VitaminC)
 }
 
 // roundToTwoDecimals 四舍五入到两位小数

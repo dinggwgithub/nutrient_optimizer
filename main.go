@@ -45,6 +45,8 @@ func main() {
 	{
 		api.POST("/optimize-with-bugs", optimizeWithBugsHandler)
 		api.POST("/optimize-moead", optimizeMOEADHandler)
+		api.POST("/optimize-fixed", optimizeFixedHandler)
+		api.POST("/optimize-fixed-moead", optimizeFixedMOEADHandler)
 		api.GET("/health", healthHandler)
 		api.GET("/ingredients", getIngredientsHandler)
 	}
@@ -177,6 +179,88 @@ func optimizeMOEADHandler(c *gin.Context) {
 	})
 }
 
+// OptimizeFixed 修复后的优化（加权求和）
+// @Summary 修复后的优化（加权求和）
+// @Description 使用修复后的加权求和算法进行营养配餐优化
+// @Tags 优化算法
+// @Accept json
+// @Produce json
+// @Param request body OptimizeRequest true "优化请求参数"
+// @Success 200 {object} map[string]interface{} "优化结果"
+// @Failure 400 {object} map[string]interface{} "请求参数错误"
+// @Failure 500 {object} map[string]interface{} "服务器内部错误"
+// @Router /optimize-fixed [post]
+func optimizeFixedHandler(c *gin.Context) {
+	var req OptimizationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 使用修复后的优化器（加权求和）
+	optimizer := NewFixedOptimizer(false)
+	result, err := optimizer.Optimize(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 计算预期值用于对比
+	expectedEnergy := 0.0
+	expectedCalcium := 0.0
+	for _, ing := range result.Ingredients {
+		expectedEnergy += ing.Energy * ing.Amount / 100
+		expectedCalcium += ing.Calcium * ing.Amount / 100
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"algorithm": "加权求和（修复版）",
+		"result":    result,
+		"warnings":  optimizer.GetWarnings(),
+		"validation": gin.H{
+			"expected_energy":  roundToTwoDecimals(expectedEnergy),
+			"expected_calcium": roundToTwoDecimals(expectedCalcium),
+			"actual_energy":    result.Nutrition.Energy,
+			"actual_calcium":   result.Nutrition.Calcium,
+		},
+	})
+}
+
+// OptimizeFixedMOEAD 修复后的MOEA/D优化
+// @Summary 修复后的MOEA/D多目标优化
+// @Description 使用修复后的MOEA/D算法进行营养配餐优化
+// @Tags 优化算法
+// @Accept json
+// @Produce json
+// @Param population_size query int false "种群大小 (默认: 50)" default(50)
+// @Param max_iterations query int false "最大迭代次数 (默认: 100)" default(100)
+// @Param request body OptimizeRequest true "优化请求参数"
+// @Success 200 {object} map[string]interface{} "优化结果"
+// @Failure 400 {object} map[string]interface{} "请求参数错误"
+// @Failure 500 {object} map[string]interface{} "服务器内部错误"
+// @Router /optimize-fixed-moead [post]
+func optimizeFixedMOEADHandler(c *gin.Context) {
+	var req OptimizationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 使用修复后的优化器（MOEA/D）
+	optimizer := NewFixedOptimizer(true)
+	result, err := optimizer.Optimize(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"algorithm": "MOEA/D（修复版）",
+		"result":    result,
+		"warnings":  optimizer.GetWarnings(),
+	})
+}
+
 // GetIngredients 获取食材列表
 // @Summary 获取食材列表
 // @Description 从数据库或JSON文件获取可用的食材列表
@@ -194,17 +278,17 @@ func getIngredientsHandler(c *gin.Context) {
 	if l := c.Query("limit"); l != "" {
 		fmt.Sscanf(l, "%d", &limit)
 	}
-	
+
 	source := c.DefaultQuery("source", "db")
 	filepath := c.DefaultQuery("filepath", "ingredients_db_export.json")
 
 	optimizer := NewMOEADOptimizer(10, 10)
 	defer optimizer.CloseDB()
-	
+
 	var ingredients []Ingredient
 	var err error
 	var sourceUsed string
-	
+
 	if source == "json" {
 		ingredients, err = optimizer.LoadIngredientsFromJSON(filepath)
 		sourceUsed = "JSON文件"
@@ -212,7 +296,7 @@ func getIngredientsHandler(c *gin.Context) {
 		ingredients, err = optimizer.LoadIngredientsFromDB(limit)
 		sourceUsed = "数据库"
 	}
-	
+
 	if err != nil {
 		// 如果数据库失败，尝试从JSON文件加载
 		if source == "db" {
