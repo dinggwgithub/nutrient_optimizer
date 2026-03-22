@@ -8,7 +8,6 @@ import (
 	"math"
 	"math/rand"
 	"sort"
-	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -24,6 +23,7 @@ type MOEADOptimizer struct {
 	idealPoint     []float64   // 理想点
 	objectives     int         // 目标函数数量
 	warnings       []string    // 警告信息
+	fixedSeed      int64       // 固定随机种子
 }
 
 // NewMOEADOptimizer 创建MOEA/D优化器
@@ -34,6 +34,19 @@ func NewMOEADOptimizer(populationSize, maxIterations int) *MOEADOptimizer {
 		neighborSize:   int(math.Ceil(float64(populationSize) * 0.2)), // 邻域大小为种群的20%
 		objectives:     3,                                             // 营养达标、成本、多样性三个目标
 		warnings:       []string{},
+		fixedSeed:      42, // 使用固定种子确保结果可重复
+	}
+}
+
+// NewMOEADOptimizerWithSeed 创建带自定义种子的MOEA/D优化器
+func NewMOEADOptimizerWithSeed(populationSize, maxIterations int, seed int64) *MOEADOptimizer {
+	return &MOEADOptimizer{
+		populationSize: populationSize,
+		maxIterations:  maxIterations,
+		neighborSize:   int(math.Ceil(float64(populationSize) * 0.2)),
+		objectives:     3,
+		warnings:       []string{},
+		fixedSeed:      seed,
 	}
 }
 
@@ -555,7 +568,8 @@ func (o *MOEADOptimizer) repair(ind *Individual, req OptimizationRequest) {
 
 // Optimize 执行MOEA/D优化
 func (o *MOEADOptimizer) Optimize(req OptimizationRequest) (*OptimizationResult, error) {
-	rand.Seed(time.Now().UnixNano())
+	// 使用固定种子确保结果可重复
+	rand.Seed(o.fixedSeed)
 	o.warnings = []string{}
 
 	// 加载食材数据（优先级: 请求 > 数据库 > JSON文件）
@@ -594,6 +608,11 @@ func (o *MOEADOptimizer) Optimize(req OptimizationRequest) (*OptimizationResult,
 		o.evaluateIndividual(population[i], ingredients, req)
 	}
 
+	// 收敛跟踪
+	prevBestScore := math.Inf(1)
+	convergenceCount := 0
+	tolerance := 0.05 // 5%偏差
+
 	// 主迭代循环
 	for gen := 0; gen < o.maxIterations; gen++ {
 		for i := 0; i < o.populationSize; i++ {
@@ -624,6 +643,21 @@ func (o *MOEADOptimizer) Optimize(req OptimizationRequest) (*OptimizationResult,
 				}
 			}
 		}
+
+		// 检查收敛
+		bestIdx := o.selectBestSolution(population, req.Weights)
+		currentScore := o.calculateWeightedScore(population[bestIdx], req.Weights)
+
+		if math.Abs(currentScore-prevBestScore) < tolerance*math.Abs(prevBestScore) {
+			convergenceCount++
+			if convergenceCount >= 10 {
+				o.warnings = append(o.warnings, fmt.Sprintf("算法在第%d代收敛", gen))
+				break
+			}
+		} else {
+			convergenceCount = 0
+		}
+		prevBestScore = currentScore
 	}
 
 	// 找到最优解（根据权重偏好选择）
@@ -633,9 +667,78 @@ func (o *MOEADOptimizer) Optimize(req OptimizationRequest) (*OptimizationResult,
 	// 生成结果
 	result := o.generateResult(bestInd, ingredients, req)
 	result.Iterations = o.maxIterations
-	result.Converged = true
+	result.Converged = convergenceCount >= 10 || o.checkConvergence(result, req.NutritionGoals, tolerance)
 
 	return result, nil
+}
+
+// calculateWeightedScore 计算加权得分
+func (o *MOEADOptimizer) calculateWeightedScore(ind *Individual, weights []Weight) float64 {
+	nutritionWeight := 0.6
+	costWeight := 0.3
+	varietyWeight := 0.1
+
+	for _, w := range weights {
+		switch w.Type {
+		case "nutrition":
+			nutritionWeight = w.Value
+		case "cost":
+			costWeight = w.Value
+		case "variety":
+			varietyWeight = w.Value
+		}
+	}
+
+	totalWeight := nutritionWeight + costWeight + varietyWeight
+	if totalWeight > 0 {
+		nutritionWeight /= totalWeight
+		costWeight /= totalWeight
+		varietyWeight /= totalWeight
+	}
+
+	return ind.Objectives[0]*nutritionWeight +
+		ind.Objectives[1]*costWeight +
+		ind.Objectives[2]*varietyWeight
+}
+
+// checkConvergence 检查结果是否收敛到目标
+func (o *MOEADOptimizer) checkConvergence(result *OptimizationResult, goals []NutritionGoal, tolerance float64) bool {
+	if len(goals) == 0 {
+		return true
+	}
+
+	for _, goal := range goals {
+		var actual float64
+		switch goal.Nutrient {
+		case "energy":
+			actual = result.Nutrition.Energy
+		case "protein":
+			actual = result.Nutrition.Protein
+		case "fat":
+			actual = result.Nutrition.Fat
+		case "carbs":
+			actual = result.Nutrition.Carbs
+		case "calcium":
+			actual = result.Nutrition.Calcium
+		case "iron":
+			actual = result.Nutrition.Iron
+		case "zinc":
+			actual = result.Nutrition.Zinc
+		case "vitamin_c":
+			actual = result.Nutrition.VitaminC
+		default:
+			continue
+		}
+
+		if goal.Target > 0 {
+			relDiff := math.Abs(actual-goal.Target) / goal.Target
+			if relDiff > tolerance {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 // selectBestSolution 根据权重偏好选择最优解
@@ -695,6 +798,13 @@ func (o *MOEADOptimizer) generateResult(ind *Individual, ingredients []Ingredien
 		if i >= len(ingredients) {
 			break
 		}
+		// 确保食材重量在合理范围内 (0-500g)
+		if amount < 0 {
+			amount = 0
+		}
+		if amount > 500 {
+			amount = 500
+		}
 		if amount > 0.1 { // 只保留用量大于0.1g的食材
 			result.Ingredients = append(result.Ingredients, IngredientAmount{
 				Ingredient: ingredients[i],
@@ -706,6 +816,16 @@ func (o *MOEADOptimizer) generateResult(ind *Individual, ingredients []Ingredien
 	// 计算营养汇总
 	result.Nutrition = o.calculateNutrition(ind.Amounts, ingredients)
 
+	// 验证并修复营养值
+	result.Nutrition.Energy = validateNutritionValue(result.Nutrition.Energy, "能量", 0, 5000, &result.Warnings)
+	result.Nutrition.Protein = validateNutritionValue(result.Nutrition.Protein, "蛋白质", 0, 200, &result.Warnings)
+	result.Nutrition.Fat = validateNutritionValue(result.Nutrition.Fat, "脂肪", 0, 200, &result.Warnings)
+	result.Nutrition.Carbs = validateNutritionValue(result.Nutrition.Carbs, "碳水化合物", 0, 500, &result.Warnings)
+	result.Nutrition.Calcium = validateNutritionValue(result.Nutrition.Calcium, "钙", 0, 3000, &result.Warnings)
+	result.Nutrition.Iron = validateNutritionValue(result.Nutrition.Iron, "铁", 0, 100, &result.Warnings)
+	result.Nutrition.Zinc = validateNutritionValue(result.Nutrition.Zinc, "锌", 0, 50, &result.Warnings)
+	result.Nutrition.VitaminC = validateNutritionValue(result.Nutrition.VitaminC, "维生素C", 0, 2000, &result.Warnings)
+
 	// 计算成本
 	result.Cost = roundToTwoDecimals(o.calculateTotalCost(ind.Amounts, ingredients))
 
@@ -716,6 +836,23 @@ func (o *MOEADOptimizer) generateResult(ind *Individual, ingredients []Ingredien
 	}
 
 	return result
+}
+
+// validateNutritionValue 验证营养值是否在合理范围内
+func validateNutritionValue(value float64, name string, minVal, maxVal float64, warnings *[]string) float64 {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		*warnings = append(*warnings, fmt.Sprintf("%s计算结果异常(NaN/Inf)，已修正为0", name))
+		return 0
+	}
+	if value < minVal {
+		*warnings = append(*warnings, fmt.Sprintf("%s值%.2f低于最小值%.2f，已修正", name, value, minVal))
+		return minVal
+	}
+	if value > maxVal {
+		*warnings = append(*warnings, fmt.Sprintf("%s值%.2f超过最大值%.2f，已修正", name, value, maxVal))
+		return maxVal
+	}
+	return roundToTwoDecimals(value)
 }
 
 // roundToTwoDecimals 四舍五入到两位小数

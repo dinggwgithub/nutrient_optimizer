@@ -106,6 +106,55 @@ const docTemplate = `{
                 }
             }
         },
+        "/optimize-fixed": {
+            "post": {
+                "description": "使用修复后的优化器进行营养配餐优化，解决数值计算问题",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "优化算法"
+                ],
+                "summary": "修复后的优化（正确版本）",
+                "parameters": [
+                    {
+                        "description": "优化请求参数",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/main.OptimizeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "优化结果",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "服务器内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/optimize-moead": {
             "post": {
                 "description": "使用MOEA/D（基于分解的多目标进化算法）进行营养配餐优化",

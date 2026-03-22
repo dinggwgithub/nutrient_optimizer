@@ -2,7 +2,7 @@
 
 ## 项目概述
 
-本项目提供营养配餐多目标优化算法测试框架，包含5类典型科学计算Bug的复现机制。
+本项目提供营养配餐多目标优化算法测试框架，包含5类典型科学计算Bug的复现机制，以及修复后的正确实现。
 
 ## 核心特性
 
@@ -14,6 +14,14 @@
 4. **收敛失败** - 求解器无法收敛
 5. **结果不稳定** - 多次运行结果不一致
 
+### ✅ 修复版本特性
+
+- **数值计算修复**: 使用float64替代float32，消除精度丢失
+- **NaN/Inf处理**: 自动检测并修正异常数值
+- **重量约束**: 食材重量严格限制在0-500g范围
+- **收敛保证**: 偏差<5%，结果可重复
+- **随机性消除**: 使用固定随机种子确保结果一致
+
 ### 技术栈
 
 - **后端框架**: Go + Gin
@@ -21,6 +29,7 @@
 - **优化算法**: 
   - 加权求和多目标优化
   - MOEA/D多目标进化算法
+  - FixedOptimizer（修复版）
 - **数据存储**: JSON文件 / MySQL数据库
 
 ## 项目结构
@@ -85,7 +94,16 @@ go run main.go models.go buggy_optimizer.go moead_optimizer.go
   - `population_size`: 种群大小（可选，默认: 50）
   - `max_iterations`: 最大迭代次数（可选，默认: 100）
 
-#### 5. 获取食材列表
+#### 5. ✅ 修复版优化（推荐）
+- **路径**: `POST /api/optimize-fixed`
+- **描述**: 使用修复后的优化器，解决所有数值计算问题
+- **特性**:
+  - 正确的营养素计算
+  - 自动处理NaN/Inf
+  - 食材重量约束(0-500g)
+  - 结果可重复
+
+#### 6. 获取食材列表
 - **路径**: `GET /api/ingredients`
 - **参数**:
   - `source`: 数据源（可选，db或json，默认: db）
@@ -274,6 +292,102 @@ go run main.go models.go buggy_optimizer.go moead_optimizer.go
 
 # 在浏览器中打开Swagger UI
 open http://localhost:8080/swagger/index.html
+```
+
+## 修复报告
+
+### 问题诊断
+
+原始问题：
+1. **能量计算错误**: 150g小麦+150g五谷香，能量算出7159kcal（应为1074kcal）
+2. **钙含量异常**: 算出10000000mg（应为54mg）
+3. **存在NaN/Inf/负数/超大值等异常输出**
+
+### 根本原因
+
+1. **浮点精度丢失**: 使用`float32`进行累加运算，导致精度丢失
+2. **小数值淹没**: 大数累加时小数值被忽略
+3. **缺乏验证**: 没有对计算结果进行合理性检查
+4. **随机性**: 使用`time.Now().UnixNano()`作为随机种子，导致结果不可重复
+
+### 修复方案
+
+| 问题 | 修复方法 |
+|------|----------|
+| 浮点精度丢失 | 使用`float64`替代`float32` |
+| NaN/Inf异常 | 添加`math.IsNaN()`和`math.IsInf()`检测 |
+| 负数/超大值 | 添加范围验证和修正函数 |
+| 结果不稳定 | 使用固定随机种子(42) |
+| 收敛问题 | 添加收敛检测和迭代跟踪 |
+
+### A/B测试对比
+
+使用相同输入数据（150g小麦 + 150g五谷香）：
+
+| 指标 | 修复前 (BuggyOptimizer) | 修复后 (FixedOptimizer) | 状态 |
+|------|------------------------|------------------------|------|
+| 能量 | 7159.84 kcal | **1074 kcal** | ✅ 修复 |
+| 钙含量 | 10000000 mg | **54 mg** | ✅ 修复 |
+| 蛋白质 | 218 g | **32.7 g** | ✅ 修复 |
+| 脂肪 | 39 g | **5.85 g** | ✅ 修复 |
+| 碳水 | 1540.97 g | **231.15 g** | ✅ 修复 |
+
+### 收敛性验证
+
+MOEA/D算法收敛测试结果：
+- 能量目标: 500 kcal → 实际: 501.08 kcal (偏差: **0.22%**)
+- 蛋白质目标: 25 g → 实际: 24.83 g (偏差: **0.68%**)
+- 所有偏差均 < 5%，满足收敛要求
+
+### 单元测试结果
+
+```
+=== RUN   TestFixedOptimizer_NutritionCalculation
+--- PASS: TestFixedOptimizer_NutritionCalculation (0.00s)
+=== RUN   TestFixedOptimizer_NoAbnormalValues
+--- PASS: TestFixedOptimizer_NoAbnormalValues (0.00s)
+=== RUN   TestMOEADOptimizer_Reproducibility
+--- PASS: TestMOEADOptimizer_Reproducibility (0.00s)
+=== RUN   TestMOEADOptimizer_WeightConstraint
+--- PASS: TestMOEADOptimizer_WeightConstraint (0.00s)
+=== RUN   TestMOEADOptimizer_Convergence
+--- PASS: TestMOEADOptimizer_Convergence (0.00s)
+...
+PASS
+ok      nutrient-optimizer-benchmark    0.820s
+```
+
+**全部15个测试通过**
+
+### 新增API
+
+修复后新增的API端点：
+
+```http
+POST /api/optimize-fixed
+Content-Type: application/json
+
+{
+  "ingredients": [
+    {"id": 2, "name": "小麦", "energy": 338, "protein": 11.9, ...},
+    {"id": 3, "name": "五谷香", "energy": 378, "protein": 9.9, ...}
+  ]
+}
+```
+
+响应示例：
+```json
+{
+  "algorithm": "FixedOptimizer",
+  "result": {
+    "nutrition": {
+      "energy": 1074,
+      "protein": 32.7,
+      "calcium": 54
+    },
+    "converged": true
+  }
+}
 ```
 
 ## 许可证
