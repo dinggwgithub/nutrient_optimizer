@@ -1,0 +1,340 @@
+{
+  "test_cases": [
+    {
+      "name": "常规场景测试",
+      "description": "正常营养配餐优化场景",
+      "request": {
+        "ingredients": [
+          {
+            "id": 1,
+            "name": "鸡胸肉",
+            "energy": 165.0,
+            "protein": 31.0,
+            "fat": 3.6,
+            "carbs": 0.0,
+            "calcium": 11.0,
+            "iron": 1.0,
+            "zinc": 0.7,
+            "vitamin_c": 0.0,
+            "price": 0.8
+          },
+          {
+            "id": 2,
+            "name": "西兰花",
+            "energy": 34.0,
+            "protein": 2.8,
+            "fat": 0.4,
+            "carbs": 6.6,
+            "calcium": 67.0,
+            "iron": 1.0,
+            "zinc": 0.4,
+            "vitamin_c": 51.0,
+            "price": 0.3
+          },
+          {
+            "id": 3,
+            "name": "米饭",
+            "energy": 130.0,
+            "protein": 2.6,
+            "fat": 0.3,
+            "carbs": 28.0,
+            "calcium": 3.0,
+            "iron": 0.3,
+            "zinc": 0.5,
+            "vitamin_c": 0.0,
+            "price": 0.1
+          },
+          {
+            "id": 4,
+            "name": "鸡蛋",
+            "energy": 155.0,
+            "protein": 13.0,
+            "fat": 11.0,
+            "carbs": 1.1,
+            "calcium": 56.0,
+            "iron": 1.8,
+            "zinc": 1.3,
+            "vitamin_c": 0.0,
+            "price": 0.2
+          }
+        ],
+        "nutrition_goals": [
+          {
+            "nutrient": "energy",
+            "target": 600.0,
+            "min": 500.0,
+            "max": 700.0,
+            "weight": 0.3
+          },
+          {
+            "nutrient": "protein",
+            "target": 30.0,
+            "min": 20.0,
+            "max": 40.0,
+            "weight": 0.4
+          },
+          {
+            "nutrient": "fat",
+            "target": 15.0,
+            "min": 10.0,
+            "max": 25.0,
+            "weight": 0.2
+          },
+          {
+            "nutrient": "carbs",
+            "target": 80.0,
+            "min": 60.0,
+            "max": 100.0,
+            "weight": 0.1
+          }
+        ],
+        "constraints": [
+          {
+            "type": "ingredient_min",
+            "ingredient_id": 1,
+            "value": 50.0
+          },
+          {
+            "type": "ingredient_max",
+            "ingredient_id": 3,
+            "value": 200.0
+          },
+          {
+            "type": "total_weight",
+            "value": 400.0
+          }
+        ],
+        "weights": [
+          {
+            "type": "nutrition",
+            "value": 0.6
+          },
+          {
+            "type": "cost",
+            "value": 0.3
+          },
+          {
+            "type": "variety",
+            "value": 0.1
+          }
+        ],
+        "max_iterations": 1000,
+        "tolerance": 1e-6
+      },
+      "expected_bugs": [],
+      "validation_rules": {
+        "ingredient_amount_range": [0, 500],
+        "energy_range": [400, 800],
+        "protein_range": [15, 50],
+        "cost_max": 10.0
+      }
+    },
+    {
+      "name": "边界场景测试-低热量目标",
+      "description": "极低热量目标的边界情况测试",
+      "request": {
+        "ingredients": [
+          {
+            "id": 5,
+            "name": "黄瓜",
+            "energy": 15.0,
+            "protein": 0.8,
+            "fat": 0.2,
+            "carbs": 3.6,
+            "calcium": 16.0,
+            "iron": 0.5,
+            "zinc": 0.2,
+            "vitamin_c": 9.0,
+            "price": 0.1
+          },
+          {
+            "id": 6,
+            "name": "西红柿",
+            "energy": 18.0,
+            "protein": 0.9,
+            "fat": 0.2,
+            "carbs": 3.9,
+            "calcium": 10.0,
+            "iron": 0.3,
+            "zinc": 0.1,
+            "vitamin_c": 14.0,
+            "price": 0.2
+          },
+          {
+            "id": 7,
+            "name": "生菜",
+            "energy": 15.0,
+            "protein": 1.4,
+            "fat": 0.2,
+            "carbs": 2.9,
+            "calcium": 36.0,
+            "iron": 0.9,
+            "zinc": 0.2,
+            "vitamin_c": 9.0,
+            "price": 0.15
+          }
+        ],
+        "nutrition_goals": [
+          {
+            "nutrient": "energy",
+            "target": 100.0,
+            "min": 50.0,
+            "max": 150.0,
+            "weight": 0.5
+          },
+          {
+            "nutrient": "protein",
+            "target": 5.0,
+            "min": 3.0,
+            "max": 8.0,
+            "weight": 0.3
+          },
+          {
+            "nutrient": "vitamin_c",
+            "target": 30.0,
+            "min": 20.0,
+            "max": 40.0,
+            "weight": 0.2
+          }
+        ],
+        "constraints": [
+          {
+            "type": "total_weight",
+            "value": 300.0
+          }
+        ],
+        "weights": [
+          {
+            "type": "nutrition",
+            "value": 0.8
+          },
+          {
+            "type": "cost",
+            "value": 0.2
+          }
+        ],
+        "max_iterations": 500,
+        "tolerance": 1e-8
+      },
+      "expected_bugs": [
+        "precision_loss",
+        "convergence_failure"
+      ],
+      "validation_rules": {
+        "ingredient_amount_range": [0, 500],
+        "energy_range": [30, 200],
+        "vitamin_c_min": 10.0
+      }
+    },
+    {
+      "name": "极端数值测试",
+      "description": "测试极端数值情况下的稳定性",
+      "request": {
+        "ingredients": [
+          {
+            "id": 8,
+            "name": "高能量食材",
+            "energy": 900.0,
+            "protein": 0.1,
+            "fat": 99.0,
+            "carbs": 0.1,
+            "calcium": 0.0,
+            "iron": 0.0,
+            "zinc": 0.0,
+            "vitamin_c": 0.0,
+            "price": 0.01
+          },
+          {
+            "id": 9,
+            "name": "高蛋白食材",
+            "energy": 100.0,
+            "protein": 80.0,
+            "fat": 1.0,
+            "carbs": 5.0,
+            "calcium": 0.0,
+            "iron": 0.0,
+            "zinc": 0.0,
+            "vitamin_c": 0.0,
+            "price": 5.0
+          },
+          {
+            "id": 10,
+            "name": "微量营养素食材",
+            "energy": 10.0,
+            "protein": 1.0,
+            "fat": 0.1,
+            "carbs": 2.0,
+            "calcium": 500.0,
+            "iron": 20.0,
+            "zinc": 10.0,
+            "vitamin_c": 200.0,
+            "price": 0.5
+          }
+        ],
+        "nutrition_goals": [
+          {
+            "nutrient": "energy",
+            "target": 2000.0,
+            "min": 1500.0,
+            "max": 2500.0,
+            "weight": 0.2
+          },
+          {
+            "nutrient": "protein",
+            "target": 100.0,
+            "min": 80.0,
+            "max": 120.0,
+            "weight": 0.3
+          },
+          {
+            "nutrient": "calcium",
+            "target": 800.0,
+            "min": 600.0,
+            "max": 1000.0,
+            "weight": 0.2
+          },
+          {
+            "nutrient": "iron",
+            "target": 15.0,
+            "min": 10.0,
+            "max": 20.0,
+            "weight": 0.15
+          },
+          {
+            "nutrient": "vitamin_c",
+            "target": 100.0,
+            "min": 80.0,
+            "max": 120.0,
+            "weight": 0.15
+          }
+        ],
+        "constraints": [],
+        "weights": [
+          {
+            "type": "nutrition",
+            "value": 1.0
+          }
+        ],
+        "max_iterations": 2000,
+        "tolerance": 1e-10
+      },
+      "expected_bugs": [
+        "numerical_overflow",
+        "constraint_violation",
+        "result_instability"
+      ],
+      "validation_rules": {
+        "ingredient_amount_range": [0, 1000],
+        "no_nan_inf": true,
+        "cost_reasonable": true
+      }
+    }
+  ],
+  "bug_reproduction_steps": {
+    "precision_loss": "使用包含大量小数值的食材进行多次迭代优化，观察营养素计算偏差",
+    "numerical_overflow": "设置极端营养目标或使用特殊数值的食材，触发除零或指数运算",
+    "constraint_violation": "设置矛盾的约束条件或缺失边界约束，观察是否生成极端值",
+    "convergence_failure": "设置极严格的收敛阈值或不合理的初始解，测试求解器稳定性",
+    "result_instability": "多次运行相同参数的优化，检查结果一致性"
+  }
+}
