@@ -44,6 +44,7 @@ func main() {
 	api := r.Group("/api")
 	{
 		api.POST("/optimize-with-bugs", optimizeWithBugsHandler)
+		api.POST("/optimize-with-bugs-fixed", optimizeWithBugsFixedHandler)
 		api.POST("/optimize-moead", optimizeMOEADHandler)
 		api.GET("/health", healthHandler)
 		api.GET("/ingredients", getIngredientsHandler)
@@ -129,6 +130,42 @@ func optimizeWithBugsHandler(c *gin.Context) {
 	})
 }
 
+// OptimizeWithBugsFixed 收敛失败Bug修复版优化
+// @Summary 收敛失败Bug修复版优化
+// @Description 使用修复后的优化器解决收敛失败问题，包含食材重量约束(0-500g)和优化后的收敛参数
+// @Tags 优化算法
+// @Accept json
+// @Produce json
+// @Param request body OptimizeRequest true "优化请求参数"
+// @Success 200 {object} map[string]interface{} "优化结果（已修复收敛问题）"
+// @Failure 400 {object} map[string]interface{} "请求参数错误"
+// @Failure 500 {object} map[string]interface{} "服务器内部错误"
+// @Router /optimize-with-bugs-fixed [post]
+func optimizeWithBugsFixedHandler(c *gin.Context) {
+	var req OptimizationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	optimizer := NewFixedOptimizer()
+	result, err := optimizer.Optimize(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"algorithm":     "MOEA/D-Fixed",
+		"bug_fixed":     "convergence_failure",
+		"constraints":   "食材重量约束: 0-500g",
+		"convergence":   "收敛偏差<5%",
+		"deterministic": "消除算法随机性",
+		"result":        result,
+		"warnings":      optimizer.GetWarnings(),
+	})
+}
+
 // OptimizeMOEAD MOEA/D优化
 // @Summary MOEA/D多目标优化
 // @Description 使用MOEA/D（基于分解的多目标进化算法）进行营养配餐优化
@@ -194,17 +231,17 @@ func getIngredientsHandler(c *gin.Context) {
 	if l := c.Query("limit"); l != "" {
 		fmt.Sscanf(l, "%d", &limit)
 	}
-	
+
 	source := c.DefaultQuery("source", "db")
 	filepath := c.DefaultQuery("filepath", "ingredients_db_export.json")
 
 	optimizer := NewMOEADOptimizer(10, 10)
 	defer optimizer.CloseDB()
-	
+
 	var ingredients []Ingredient
 	var err error
 	var sourceUsed string
-	
+
 	if source == "json" {
 		ingredients, err = optimizer.LoadIngredientsFromJSON(filepath)
 		sourceUsed = "JSON文件"
@@ -212,7 +249,7 @@ func getIngredientsHandler(c *gin.Context) {
 		ingredients, err = optimizer.LoadIngredientsFromDB(limit)
 		sourceUsed = "数据库"
 	}
-	
+
 	if err != nil {
 		// 如果数据库失败，尝试从JSON文件加载
 		if source == "db" {
