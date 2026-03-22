@@ -44,6 +44,7 @@ func main() {
 	api := r.Group("/api")
 	{
 		api.POST("/optimize-with-bugs", optimizeWithBugsHandler)
+		api.POST("/optimize-with-bugs-fixed", optimizeWithBugsFixedHandler)
 		api.POST("/optimize-moead", optimizeMOEADHandler)
 		api.GET("/health", healthHandler)
 		api.GET("/ingredients", getIngredientsHandler)
@@ -129,6 +130,58 @@ func optimizeWithBugsHandler(c *gin.Context) {
 	})
 }
 
+// OptimizeWithBugsFixed 修复后的优化接口
+// @Summary 修复后的优化（数值溢出修复版）
+// @Description 使用修复后的优化器，解决数值溢出、NaN/Inf、负数、超大值等科学计算问题
+// @Tags 优化算法
+// @Accept json
+// @Produce json
+// @Param bug_type query string false "Bug类型（用于A/B对比测试）" Enums(numerical_overflow)
+// @Param request body OptimizeRequest true "优化请求参数"
+// @Success 200 {object} map[string]interface{} "修复后的优化结果"
+// @Failure 400 {object} map[string]interface{} "请求参数错误"
+// @Failure 500 {object} map[string]interface{} "服务器内部错误"
+// @Router /optimize-with-bugs-fixed [post]
+func optimizeWithBugsFixedHandler(c *gin.Context) {
+	var req OptimizationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	bugType := c.Query("bug_type")
+
+	fixedOptimizer := NewFixedOptimizer()
+	fixedResult, err := fixedOptimizer.Optimize(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	response := gin.H{
+		"algorithm": "FixedOptimizer",
+		"result":    fixedResult,
+		"warnings":  fixedOptimizer.GetWarnings(),
+		"fix_applied": []string{
+			"✅ 数值溢出修复：NaN/Inf检测与修正",
+			"✅ 负值修复：营养素值不允许为负数",
+			"✅ 超大值修复：营养素值上限为1e6",
+			"✅ 安全计算：除零保护、对数保护、指数保护",
+		},
+	}
+
+	if bugType == "numerical_overflow" {
+		buggyOptimizer := NewBuggyOptimizer(bugType)
+		buggyResult, _ := buggyOptimizer.Optimize(req)
+
+		abReport := fixedOptimizer.GenerateABTestReport(buggyResult, fixedResult)
+		response["ab_test"] = abReport
+		response["bug_type"] = bugType
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
 // OptimizeMOEAD MOEA/D优化
 // @Summary MOEA/D多目标优化
 // @Description 使用MOEA/D（基于分解的多目标进化算法）进行营养配餐优化
@@ -194,17 +247,17 @@ func getIngredientsHandler(c *gin.Context) {
 	if l := c.Query("limit"); l != "" {
 		fmt.Sscanf(l, "%d", &limit)
 	}
-	
+
 	source := c.DefaultQuery("source", "db")
 	filepath := c.DefaultQuery("filepath", "ingredients_db_export.json")
 
 	optimizer := NewMOEADOptimizer(10, 10)
 	defer optimizer.CloseDB()
-	
+
 	var ingredients []Ingredient
 	var err error
 	var sourceUsed string
-	
+
 	if source == "json" {
 		ingredients, err = optimizer.LoadIngredientsFromJSON(filepath)
 		sourceUsed = "JSON文件"
@@ -212,7 +265,7 @@ func getIngredientsHandler(c *gin.Context) {
 		ingredients, err = optimizer.LoadIngredientsFromDB(limit)
 		sourceUsed = "数据库"
 	}
-	
+
 	if err != nil {
 		// 如果数据库失败，尝试从JSON文件加载
 		if source == "db" {
