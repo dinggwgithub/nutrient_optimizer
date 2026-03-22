@@ -84,6 +84,29 @@ definitions:
         example: 0.3
         type: number
     type: object
+  main.OptimizationRequest:
+    properties:
+      constraints:
+        items:
+          $ref: '#/definitions/main.Constraint'
+        type: array
+      ingredients:
+        items:
+          $ref: '#/definitions/main.Ingredient'
+        type: array
+      max_iterations:
+        type: integer
+      nutrition_goals:
+        items:
+          $ref: '#/definitions/main.NutritionGoal'
+        type: array
+      tolerance:
+        type: number
+      weights:
+        items:
+          $ref: '#/definitions/main.Weight'
+        type: array
+    type: object
   main.OptimizeRequest:
     properties:
       constraints:
@@ -273,6 +296,44 @@ paths:
             additionalProperties: true
             type: object
       summary: 含Bug优化（测试版本）
+      tags:
+      - 优化算法
+  /optimize-with-bugs-fixed:
+    post:
+      consumes:
+      - application/json
+      description: 使用修复后的优化器进行营养配餐优化，专门解决numerical_overflow类型的数值溢出问题，支持A/B测试对比
+      parameters:
+      - default: false
+        description: 是否启用A/B测试（同时返回原Bug结果和修复结果，用于对比）
+        in: query
+        name: ab_test
+        type: boolean
+      - description: 优化请求参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/main.OptimizationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 优化结果（含修复报告和A/B测试数据）
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 修复Bug后的优化（数值溢出修复）
       tags:
       - 优化算法
 securityDefinitions:
