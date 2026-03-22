@@ -24,6 +24,55 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/ab-test": {
+            "post": {
+                "description": "对比Bug版本和修复版本的优化结果",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "测试"
+                ],
+                "summary": "A/B测试（Bug版本 vs 修复版本）",
+                "parameters": [
+                    {
+                        "description": "A/B测试请求参数",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/main.ABTestRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "A/B测试结果",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "服务器内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/health": {
             "get": {
                 "description": "检查服务是否正常运行",
@@ -91,6 +140,55 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "食材列表",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "服务器内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/optimize-fixed": {
+            "post": {
+                "description": "使用修复后的优化器进行营养配餐优化，修复了数值计算错误",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "优化算法"
+                ],
+                "summary": "修复后优化（无Bug版本）",
+                "parameters": [
+                    {
+                        "description": "优化请求参数",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/main.OptimizeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "优化结果",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -234,6 +332,18 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "main.ABTestRequest": {
+            "type": "object",
+            "properties": {
+                "bug_type": {
+                    "type": "string",
+                    "example": "precision_loss"
+                },
+                "request": {
+                    "$ref": "#/definitions/main.OptimizationRequest"
+                }
+            }
+        },
         "main.Constraint": {
             "description": "优化过程中的约束条件",
             "type": "object",
@@ -340,6 +450,41 @@ const docTemplate = `{
                     "description": "权重",
                     "type": "number",
                     "example": 0.3
+                }
+            }
+        },
+        "main.OptimizationRequest": {
+            "type": "object",
+            "properties": {
+                "constraints": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/main.Constraint"
+                    }
+                },
+                "ingredients": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/main.Ingredient"
+                    }
+                },
+                "max_iterations": {
+                    "type": "integer"
+                },
+                "nutrition_goals": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/main.NutritionGoal"
+                    }
+                },
+                "tolerance": {
+                    "type": "number"
+                },
+                "weights": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/main.Weight"
+                    }
                 }
             }
         },
