@@ -275,6 +275,39 @@ paths:
       summary: 含Bug优化（测试版本）
       tags:
       - 优化算法
+  /optimize-with-bugs-fixed:
+    post:
+      consumes:
+      - application/json
+      description: 使用修复后的优化器解决收敛失败问题，包含食材重量约束(0-500g)和优化后的收敛参数
+      parameters:
+      - description: 优化请求参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/main.OptimizeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 优化结果（已修复收敛问题）
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 收敛失败Bug修复版优化
+      tags:
+      - 优化算法
 securityDefinitions:
   ApiKeyAuth:
     in: header
