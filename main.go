@@ -44,6 +44,7 @@ func main() {
 	api := r.Group("/api")
 	{
 		api.POST("/optimize-with-bugs", optimizeWithBugsHandler)
+		api.POST("/optimize-with-bugs-fixed", optimizeWithBugsFixedHandler)
 		api.POST("/optimize-moead", optimizeMOEADHandler)
 		api.GET("/health", healthHandler)
 		api.GET("/ingredients", getIngredientsHandler)
@@ -194,17 +195,17 @@ func getIngredientsHandler(c *gin.Context) {
 	if l := c.Query("limit"); l != "" {
 		fmt.Sscanf(l, "%d", &limit)
 	}
-	
+
 	source := c.DefaultQuery("source", "db")
 	filepath := c.DefaultQuery("filepath", "ingredients_db_export.json")
 
 	optimizer := NewMOEADOptimizer(10, 10)
 	defer optimizer.CloseDB()
-	
+
 	var ingredients []Ingredient
 	var err error
 	var sourceUsed string
-	
+
 	if source == "json" {
 		ingredients, err = optimizer.LoadIngredientsFromJSON(filepath)
 		sourceUsed = "JSON文件"
@@ -212,7 +213,7 @@ func getIngredientsHandler(c *gin.Context) {
 		ingredients, err = optimizer.LoadIngredientsFromDB(limit)
 		sourceUsed = "数据库"
 	}
-	
+
 	if err != nil {
 		// 如果数据库失败，尝试从JSON文件加载
 		if source == "db" {
@@ -231,5 +232,67 @@ func getIngredientsHandler(c *gin.Context) {
 		"count":       len(ingredients),
 		"source":      sourceUsed,
 		"ingredients": ingredients,
+	})
+}
+
+// OptimizeWithBugsFixed 修复Bug的优化
+// @Summary 修复Bug的优化（收敛失败修复版本）
+// @Description 使用修复后的优化器进行优化，专门解决收敛失败问题，确保食材用量在0-500g范围内
+// @Tags 优化算法
+// @Accept json
+// @Produce json
+// @Param population_size query int false "种群大小 (默认: 50)" default(50)
+// @Param max_iterations query int false "最大迭代次数 (默认: 150)" default(150)
+// @Param request body OptimizeRequest true "优化请求参数"
+// @Success 200 {object} map[string]interface{} "优化结果（已修复收敛问题）"
+// @Failure 400 {object} map[string]interface{} "请求参数错误"
+// @Failure 500 {object} map[string]interface{} "服务器内部错误"
+// @Router /optimize-with-bugs-fixed [post]
+func optimizeWithBugsFixedHandler(c *gin.Context) {
+	var req OptimizationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 获取参数
+	populationSize := 50
+	if ps := c.Query("population_size"); ps != "" {
+		fmt.Sscanf(ps, "%d", &populationSize)
+	}
+
+	maxIterations := 150
+	if mi := c.Query("max_iterations"); mi != "" {
+		fmt.Sscanf(mi, "%d", &maxIterations)
+	}
+
+	// 使用修复后的优化器
+	optimizer := NewFixedOptimizer(populationSize, maxIterations)
+	result, err := optimizer.Optimize(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 验证食材用量约束（0-500g）
+	constraintViolations := []string{}
+	for _, ing := range result.Ingredients {
+		if ing.Amount < 0 || ing.Amount > 500 {
+			constraintViolations = append(constraintViolations,
+				fmt.Sprintf("%s: %.2fg (超出0-500g范围)", ing.Name, ing.Amount))
+		}
+	}
+
+	if len(constraintViolations) > 0 {
+		result.Warnings = append(result.Warnings,
+			fmt.Sprintf("食材用量约束违反: %v", constraintViolations))
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"algorithm":            "Fixed-MOEA/D",
+		"result":               result,
+		"warnings":             optimizer.GetWarnings(),
+		"constraints_enforced": "食材用量约束: 0-500g",
+		"convergence_goal":     "收敛偏差 < 5%",
 	})
 }

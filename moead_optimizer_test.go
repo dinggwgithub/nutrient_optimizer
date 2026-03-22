@@ -304,3 +304,196 @@ func TestRoundToTwoDecimals(t *testing.T) {
 		}
 	}
 }
+
+// TestFixedOptimizer_IngredientWeightConstraint 测试食材重量约束0-500g
+func TestFixedOptimizer_IngredientWeightConstraint(t *testing.T) {
+	optimizer := NewFixedOptimizer(30, 100)
+
+	req := OptimizationRequest{
+		Ingredients: []Ingredient{
+			{ID: 1, Name: "小麦", Energy: 338, Protein: 11.9, Fat: 1.3, Carbs: 75.2, Price: 0},
+			{ID: 2, Name: "五谷香", Energy: 378, Protein: 9.9, Fat: 2.6, Carbs: 78.9, Price: 0},
+		},
+		NutritionGoals: []NutritionGoal{
+			{Nutrient: "energy", Target: 600, Weight: 0.4},
+			{Nutrient: "protein", Target: 30, Weight: 0.3},
+		},
+		Constraints: []Constraint{
+			{Type: "total_weight", Value: 400},
+		},
+		MaxIterations: 100,
+	}
+
+	result, err := optimizer.Optimize(req)
+	if err != nil {
+		t.Fatalf("优化失败: %v", err)
+	}
+
+	// 验证食材用量在0-500g范围内
+	for _, ing := range result.Ingredients {
+		if ing.Amount < 0 || ing.Amount > 500 {
+			t.Errorf("食材用量超出范围: %s = %.2fg (应在0-500g之间)", ing.Name, ing.Amount)
+		}
+	}
+
+	t.Logf("食材数量: %d", len(result.Ingredients))
+	for _, ing := range result.Ingredients {
+		t.Logf("  %s: %.2fg", ing.Name, ing.Amount)
+	}
+}
+
+// TestFixedOptimizer_Extreme1000gWheat 测试1000g小麦超限场景
+func TestFixedOptimizer_Extreme1000gWheat(t *testing.T) {
+	optimizer := NewFixedOptimizer(30, 100)
+
+	req := OptimizationRequest{
+		Ingredients: []Ingredient{
+			{ID: 2, Name: "小麦", Energy: 338, Protein: 11.9, Fat: 1.3, Carbs: 75.2, Calcium: 34, Iron: 5.1, Zinc: 2.33, VitaminC: 0, Price: 0},
+			{ID: 3, Name: "五谷香", Energy: 378, Protein: 9.9, Fat: 2.6, Carbs: 78.9, Calcium: 2, Iron: 0.5, Zinc: 0.23, VitaminC: 0, Price: 0},
+		},
+		NutritionGoals: []NutritionGoal{
+			{Nutrient: "energy", Target: 1500, Weight: 0.4},
+			{Nutrient: "protein", Target: 50, Weight: 0.3},
+		},
+		Constraints: []Constraint{
+			{Type: "total_weight", Value: 400},
+		},
+		MaxIterations: 100,
+	}
+
+	result, err := optimizer.Optimize(req)
+	if err != nil {
+		t.Fatalf("优化失败: %v", err)
+	}
+
+	if !result.Converged {
+		t.Error("优化未收敛")
+	}
+
+	// 验证食材用量约束
+	for _, ing := range result.Ingredients {
+		if ing.Amount < 0 || ing.Amount > 500 {
+			t.Errorf("食材用量超出范围: %s = %.2fg", ing.Name, ing.Amount)
+		}
+	}
+
+	// 验证没有错误
+	if result.Error != "" {
+		t.Errorf("优化结果包含错误: %s", result.Error)
+	}
+
+	t.Logf("收敛状态: %v", result.Converged)
+	t.Logf("食材数量: %d", len(result.Ingredients))
+	for _, ing := range result.Ingredients {
+		t.Logf("  %s: %.2fg", ing.Name, ing.Amount)
+	}
+}
+
+// TestFixedOptimizer_BoundaryValues 测试边界值 0g/500g
+func TestFixedOptimizer_BoundaryValues(t *testing.T) {
+	optimizer := NewFixedOptimizer(30, 100)
+
+	req := OptimizationRequest{
+		Ingredients: []Ingredient{
+			{ID: 1, Name: "测试食材A", Energy: 100, Protein: 10, Price: 0.5},
+			{ID: 2, Name: "测试食材B", Energy: 200, Protein: 20, Price: 1.0},
+			{ID: 3, Name: "测试食材C", Energy: 300, Protein: 30, Price: 1.5},
+		},
+		NutritionGoals: []NutritionGoal{
+			{Nutrient: "energy", Target: 800, Weight: 0.5},
+			{Nutrient: "protein", Target: 60, Weight: 0.5},
+		},
+		Constraints: []Constraint{
+			{Type: "total_weight", Value: 400},
+			{Type: "ingredient_min", IngredientID: 1, Value: 0},   // 0g边界
+			{Type: "ingredient_max", IngredientID: 2, Value: 500}, // 500g边界
+		},
+		MaxIterations: 100,
+	}
+
+	result, err := optimizer.Optimize(req)
+	if err != nil {
+		t.Fatalf("优化失败: %v", err)
+	}
+
+	if !result.Converged {
+		t.Error("优化未收敛")
+	}
+
+	// 验证约束
+	for _, ing := range result.Ingredients {
+		if ing.Amount < 0 || ing.Amount > 500 {
+			t.Errorf("食材用量超出范围: %s = %.2fg", ing.Name, ing.Amount)
+		}
+	}
+
+	t.Logf("收敛状态: %v", result.Converged)
+	for _, ing := range result.Ingredients {
+		t.Logf("  %s: %.2fg", ing.Name, ing.Amount)
+	}
+}
+
+// TestFixedOptimizer_CompareWithBuggy 对比测试：修复版vsBug版
+func TestFixedOptimizer_CompareWithBuggy(t *testing.T) {
+	req := OptimizationRequest{
+		Ingredients: []Ingredient{
+			{ID: 2, Name: "小麦", Energy: 338, Protein: 11.9, Fat: 1.3, Carbs: 75.2, Calcium: 34, Iron: 5.1, Zinc: 2.33, VitaminC: 0, Price: 0},
+			{ID: 3, Name: "五谷香", Energy: 378, Protein: 9.9, Fat: 2.6, Carbs: 78.9, Calcium: 2, Iron: 0.5, Zinc: 0.23, VitaminC: 0, Price: 0},
+		},
+		NutritionGoals: []NutritionGoal{
+			{Nutrient: "energy", Target: 1500, Weight: 0.4},
+			{Nutrient: "protein", Target: 50, Weight: 0.3},
+		},
+		Constraints: []Constraint{
+			{Type: "total_weight", Value: 400},
+		},
+		MaxIterations: 100,
+	}
+
+	// 测试Buggy版本
+	buggyOptimizer := NewBuggyOptimizer(BugTypeConvergenceFailure)
+	buggyResult, _ := buggyOptimizer.Optimize(req)
+
+	t.Log("=== Buggy 版本结果 ===")
+	t.Logf("收敛状态: %v", buggyResult.Converged)
+	t.Logf("错误信息: %s", buggyResult.Error)
+	for _, ing := range buggyResult.Ingredients {
+		t.Logf("  %s: %.2fg", ing.Name, ing.Amount)
+	}
+	for _, w := range buggyResult.Warnings {
+		t.Logf("  警告: %s", w)
+	}
+
+	// 测试修复版本
+	fixedOptimizer := NewFixedOptimizer(30, 100)
+	fixedResult, err := fixedOptimizer.Optimize(req)
+	if err != nil {
+		t.Fatalf("修复版优化失败: %v", err)
+	}
+
+	t.Log("\n=== 修复版本结果 ===")
+	t.Logf("收敛状态: %v", fixedResult.Converged)
+	t.Logf("错误信息: %s", fixedResult.Error)
+	for _, ing := range fixedResult.Ingredients {
+		t.Logf("  %s: %.2fg", ing.Name, ing.Amount)
+	}
+	for _, w := range fixedResult.Warnings {
+		t.Logf("  警告: %s", w)
+	}
+
+	// 验证修复效果
+	if !fixedResult.Converged {
+		t.Error("修复版应该收敛，但实际未收敛")
+	}
+
+	if fixedResult.Error != "" {
+		t.Errorf("修复版不应该有错误，但得到: %s", fixedResult.Error)
+	}
+
+	// 验证食材用量约束
+	for _, ing := range fixedResult.Ingredients {
+		if ing.Amount < 0 || ing.Amount > 500 {
+			t.Errorf("修复版食材用量超出范围: %s = %.2fg", ing.Name, ing.Amount)
+		}
+	}
+}
