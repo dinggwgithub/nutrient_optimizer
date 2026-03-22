@@ -275,6 +275,45 @@ paths:
       summary: 含Bug优化（测试版本）
       tags:
       - 优化算法
+  /optimize-with-bugs-fixed:
+    post:
+      consumes:
+      - application/json
+      description: 使用修复后的优化器，解决数值溢出、NaN/Inf、负数、超大值等科学计算问题
+      parameters:
+      - description: Bug类型（用于A/B对比测试）
+        enum:
+        - numerical_overflow
+        in: query
+        name: bug_type
+        type: string
+      - description: 优化请求参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/main.OptimizeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 修复后的优化结果
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 修复后的优化（数值溢出修复版）
+      tags:
+      - 优化算法
 securityDefinitions:
   ApiKeyAuth:
     in: header

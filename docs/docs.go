@@ -231,6 +231,64 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/optimize-with-bugs-fixed": {
+            "post": {
+                "description": "使用修复后的优化器，解决数值溢出、NaN/Inf、负数、超大值等科学计算问题",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "优化算法"
+                ],
+                "summary": "修复后的优化（数值溢出修复版）",
+                "parameters": [
+                    {
+                        "enum": [
+                            "numerical_overflow"
+                        ],
+                        "type": "string",
+                        "description": "Bug类型（用于A/B对比测试）",
+                        "name": "bug_type",
+                        "in": "query"
+                    },
+                    {
+                        "description": "优化请求参数",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/main.OptimizeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "修复后的优化结果",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "服务器内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
