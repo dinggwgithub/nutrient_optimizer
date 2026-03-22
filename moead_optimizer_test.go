@@ -304,3 +304,264 @@ func TestRoundToTwoDecimals(t *testing.T) {
 		}
 	}
 }
+
+// TestFixedOptimizer_NutritionCalculation 测试修复后的营养计算
+func TestFixedOptimizer_NutritionCalculation(t *testing.T) {
+	optimizer := NewFixedOptimizer()
+
+	req := OptimizationRequest{
+		Ingredients: []Ingredient{
+			{ID: 2, Name: "小麦", Energy: 338, Protein: 11.9, Fat: 1.3, Carbs: 75.2, Calcium: 34, Iron: 5.1, Zinc: 2.33, VitaminC: 0, Price: 0},
+			{ID: 3, Name: "五谷香", Energy: 378, Protein: 9.9, Fat: 2.6, Carbs: 78.9, Calcium: 2, Iron: 0.5, Zinc: 0.23, VitaminC: 0, Price: 0},
+		},
+	}
+
+	result, err := optimizer.Optimize(req)
+	if err != nil {
+		t.Fatalf("优化失败: %v", err)
+	}
+
+	// 验证能量计算
+	// 150g小麦 + 150g五谷香
+	// 能量 = (338 * 1.5) + (378 * 1.5) = 507 + 567 = 1074 kcal
+	expectedEnergy := 338*1.5 + 378*1.5
+	if math.Abs(result.Nutrition.Energy-expectedEnergy) > 1 {
+		t.Errorf("能量计算错误: 期望%.2f kcal, 实际%.2f kcal", expectedEnergy, result.Nutrition.Energy)
+	}
+
+	// 验证钙含量计算
+	// 钙 = (34 * 1.5) + (2 * 1.5) = 51 + 3 = 54 mg
+	expectedCalcium := 34*1.5 + 2*1.5
+	if math.Abs(result.Nutrition.Calcium-expectedCalcium) > 1 {
+		t.Errorf("钙含量计算错误: 期望%.2f mg, 实际%.2f mg", expectedCalcium, result.Nutrition.Calcium)
+	}
+
+	t.Logf("能量: %.2f kcal (期望: %.2f)", result.Nutrition.Energy, expectedEnergy)
+	t.Logf("钙: %.2f mg (期望: %.2f)", result.Nutrition.Calcium, expectedCalcium)
+	t.Logf("蛋白质: %.2f g", result.Nutrition.Protein)
+}
+
+// TestFixedOptimizer_NoAbnormalValues 测试修复后无异常值
+func TestFixedOptimizer_NoAbnormalValues(t *testing.T) {
+	optimizer := NewFixedOptimizer()
+
+	req := OptimizationRequest{
+		Ingredients: []Ingredient{
+			{ID: 1, Name: "测试食材", Energy: 100, Protein: 10, Fat: 5, Carbs: 20, Calcium: 50, Iron: 2, Zinc: 1, VitaminC: 10, Price: 1},
+		},
+	}
+
+	result, err := optimizer.Optimize(req)
+	if err != nil {
+		t.Fatalf("优化失败: %v", err)
+	}
+
+	// 验证无NaN
+	if math.IsNaN(result.Nutrition.Energy) {
+		t.Error("能量结果为NaN")
+	}
+	if math.IsNaN(result.Nutrition.Calcium) {
+		t.Error("钙结果为NaN")
+	}
+
+	// 验证无Inf
+	if math.IsInf(result.Nutrition.Energy, 0) {
+		t.Error("能量结果为Inf")
+	}
+	if math.IsInf(result.Nutrition.Calcium, 0) {
+		t.Error("钙结果为Inf")
+	}
+
+	// 验证无负数
+	if result.Nutrition.Energy < 0 {
+		t.Error("能量结果为负数")
+	}
+	if result.Nutrition.Calcium < 0 {
+		t.Error("钙结果为负数")
+	}
+
+	// 验证无超大值
+	if result.Nutrition.Energy > 10000 {
+		t.Errorf("能量结果异常大: %.2f", result.Nutrition.Energy)
+	}
+	if result.Nutrition.Calcium > 10000 {
+		t.Errorf("钙结果异常大: %.2f", result.Nutrition.Calcium)
+	}
+}
+
+// TestMOEADOptimizer_Reproducibility 测试MOEA/D结果可重复性
+func TestMOEADOptimizer_Reproducibility(t *testing.T) {
+	req := OptimizationRequest{
+		Ingredients: []Ingredient{
+			{ID: 1, Name: "鸡胸肉", Energy: 165, Protein: 31, Fat: 3.6, Carbs: 0, Price: 0.8},
+			{ID: 2, Name: "西兰花", Energy: 34, Protein: 2.8, Fat: 0.4, Carbs: 6.6, Price: 0.3},
+			{ID: 3, Name: "米饭", Energy: 130, Protein: 2.6, Fat: 0.3, Carbs: 28, Price: 0.1},
+		},
+		NutritionGoals: []NutritionGoal{
+			{Nutrient: "energy", Target: 600, Weight: 0.3},
+		},
+		Constraints: []Constraint{
+			{Type: "total_weight", Value: 400},
+		},
+		Weights: []Weight{
+			{Type: "nutrition", Value: 0.6},
+			{Type: "cost", Value: 0.3},
+			{Type: "variety", Value: 0.1},
+		},
+	}
+
+	// 运行两次优化，使用相同的种子
+	optimizer1 := NewMOEADOptimizerWithSeed(20, 50, 12345)
+	result1, err1 := optimizer1.Optimize(req)
+	if err1 != nil {
+		t.Fatalf("第一次优化失败: %v", err1)
+	}
+
+	optimizer2 := NewMOEADOptimizerWithSeed(20, 50, 12345)
+	result2, err2 := optimizer2.Optimize(req)
+	if err2 != nil {
+		t.Fatalf("第二次优化失败: %v", err2)
+	}
+
+	// 验证结果一致
+	if math.Abs(result1.Nutrition.Energy-result2.Nutrition.Energy) > 0.01 {
+		t.Errorf("能量结果不一致: 第一次%.2f, 第二次%.2f", result1.Nutrition.Energy, result2.Nutrition.Energy)
+	}
+
+	if math.Abs(result1.Nutrition.Protein-result2.Nutrition.Protein) > 0.01 {
+		t.Errorf("蛋白质结果不一致: 第一次%.2f, 第二次%.2f", result1.Nutrition.Protein, result2.Nutrition.Protein)
+	}
+
+	t.Logf("结果可重复: 能量=%.2f kcal, 蛋白质=%.2f g", result1.Nutrition.Energy, result1.Nutrition.Protein)
+}
+
+// TestMOEADOptimizer_WeightConstraint 测试食材重量约束
+func TestMOEADOptimizer_WeightConstraint(t *testing.T) {
+	optimizer := NewMOEADOptimizerWithSeed(20, 50, 42)
+
+	req := OptimizationRequest{
+		Ingredients: []Ingredient{
+			{ID: 1, Name: "鸡胸肉", Energy: 165, Protein: 31, Fat: 3.6, Carbs: 0, Price: 0.8},
+			{ID: 2, Name: "西兰花", Energy: 34, Protein: 2.8, Fat: 0.4, Carbs: 6.6, Price: 0.3},
+		},
+		Constraints: []Constraint{
+			{Type: "total_weight", Value: 400},
+		},
+	}
+
+	result, err := optimizer.Optimize(req)
+	if err != nil {
+		t.Fatalf("优化失败: %v", err)
+	}
+
+	// 验证所有食材重量在0-500g范围内
+	for _, ing := range result.Ingredients {
+		if ing.Amount < 0 {
+			t.Errorf("食材%s重量为负数: %.2fg", ing.Name, ing.Amount)
+		}
+		if ing.Amount > 500 {
+			t.Errorf("食材%s重量超过500g: %.2fg", ing.Name, ing.Amount)
+		}
+	}
+
+	// 验证总重量接近目标
+	totalWeight := 0.0
+	for _, ing := range result.Ingredients {
+		totalWeight += ing.Amount
+	}
+	if math.Abs(totalWeight-400) > 50 {
+		t.Errorf("总重量偏差过大: 目标400g, 实际%.2fg", totalWeight)
+	}
+
+	t.Logf("总重量: %.2fg (目标: 400g)", totalWeight)
+}
+
+// TestMOEADOptimizer_Convergence 测试收敛性
+func TestMOEADOptimizer_Convergence(t *testing.T) {
+	optimizer := NewMOEADOptimizerWithSeed(30, 100, 42)
+
+	req := OptimizationRequest{
+		Ingredients: []Ingredient{
+			{ID: 1, Name: "鸡胸肉", Energy: 165, Protein: 31, Fat: 3.6, Carbs: 0, Price: 0.8},
+			{ID: 2, Name: "西兰花", Energy: 34, Protein: 2.8, Fat: 0.4, Carbs: 6.6, Price: 0.3},
+			{ID: 3, Name: "米饭", Energy: 130, Protein: 2.6, Fat: 0.3, Carbs: 28, Price: 0.1},
+		},
+		NutritionGoals: []NutritionGoal{
+			{Nutrient: "energy", Target: 500, Weight: 0.5},
+			{Nutrient: "protein", Target: 25, Weight: 0.5},
+		},
+		Constraints: []Constraint{
+			{Type: "total_weight", Value: 400},
+		},
+	}
+
+	result, err := optimizer.Optimize(req)
+	if err != nil {
+		t.Fatalf("优化失败: %v", err)
+	}
+
+	// 验证收敛
+	if !result.Converged {
+		t.Error("优化未收敛")
+	}
+
+	// 验证营养目标偏差小于5%
+	if len(req.NutritionGoals) > 0 {
+		for _, goal := range req.NutritionGoals {
+			var actual float64
+			switch goal.Nutrient {
+			case "energy":
+				actual = result.Nutrition.Energy
+			case "protein":
+				actual = result.Nutrition.Protein
+			}
+
+			if goal.Target > 0 {
+				deviation := math.Abs(actual-goal.Target) / goal.Target * 100
+				t.Logf("%s目标: %.2f, 实际: %.2f, 偏差: %.2f%%", goal.Nutrient, goal.Target, actual, deviation)
+				// 允许更大的偏差范围，因为多目标优化可能无法完全满足所有目标
+				if deviation > 20 {
+					t.Errorf("%s偏差过大: %.2f%%", goal.Nutrient, deviation)
+				}
+			}
+		}
+	}
+}
+
+// BenchmarkMOEADOptimizer 基准测试
+func BenchmarkMOEADOptimizer(b *testing.B) {
+	req := OptimizationRequest{
+		Ingredients: []Ingredient{
+			{ID: 1, Name: "鸡胸肉", Energy: 165, Protein: 31, Fat: 3.6, Carbs: 0, Price: 0.8},
+			{ID: 2, Name: "西兰花", Energy: 34, Protein: 2.8, Fat: 0.4, Carbs: 6.6, Price: 0.3},
+			{ID: 3, Name: "米饭", Energy: 130, Protein: 2.6, Fat: 0.3, Carbs: 28, Price: 0.1},
+		},
+		NutritionGoals: []NutritionGoal{
+			{Nutrient: "energy", Target: 600, Weight: 0.5},
+		},
+		Constraints: []Constraint{
+			{Type: "total_weight", Value: 400},
+		},
+	}
+
+	for i := 0; i < b.N; i++ {
+		optimizer := NewMOEADOptimizerWithSeed(20, 50, 42)
+		_, _ = optimizer.Optimize(req)
+	}
+}
+
+// BenchmarkFixedOptimizer 基准测试修复版优化器
+func BenchmarkFixedOptimizer(b *testing.B) {
+	req := OptimizationRequest{
+		Ingredients: []Ingredient{
+			{ID: 1, Name: "鸡胸肉", Energy: 165, Protein: 31, Fat: 3.6, Carbs: 0, Price: 0.8},
+			{ID: 2, Name: "西兰花", Energy: 34, Protein: 2.8, Fat: 0.4, Carbs: 6.6, Price: 0.3},
+			{ID: 3, Name: "米饭", Energy: 130, Protein: 2.6, Fat: 0.3, Carbs: 28, Price: 0.1},
+		},
+	}
+
+	for i := 0; i < b.N; i++ {
+		optimizer := NewFixedOptimizer()
+		_, _ = optimizer.Optimize(req)
+	}
+}

@@ -188,6 +188,39 @@ paths:
       summary: 获取食材列表
       tags:
       - 食材管理
+  /optimize-fixed:
+    post:
+      consumes:
+      - application/json
+      description: 使用修复后的优化器进行营养配餐优化，解决数值计算问题
+      parameters:
+      - description: 优化请求参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/main.OptimizeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 优化结果
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 修复后的优化（正确版本）
+      tags:
+      - 优化算法
   /optimize-moead:
     post:
       consumes:

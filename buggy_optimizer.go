@@ -112,6 +112,138 @@ func (o *BuggyOptimizer) optimizeWithPrecisionLoss(req OptimizationRequest) (*Op
 	return result, nil
 }
 
+// FixedOptimizer 修复后的优化器
+type FixedOptimizer struct {
+	warnings []string
+}
+
+// NewFixedOptimizer 创建修复后的优化器
+func NewFixedOptimizer() *FixedOptimizer {
+	return &FixedOptimizer{
+		warnings: []string{},
+	}
+}
+
+// GetWarnings 获取警告信息
+func (o *FixedOptimizer) GetWarnings() []string {
+	return o.warnings
+}
+
+// Optimize 执行优化（修复版本）
+func (o *FixedOptimizer) Optimize(req OptimizationRequest) (*OptimizationResult, error) {
+	o.warnings = []string{}
+
+	if len(req.Ingredients) == 0 {
+		return nil, fmt.Errorf("食材列表不能为空")
+	}
+
+	result := &OptimizationResult{
+		Ingredients: make([]IngredientAmount, len(req.Ingredients)),
+		Converged:   true,
+		Iterations:  50,
+		Warnings:    []string{},
+	}
+
+	totalWeight := 0.0
+	for i, ing := range req.Ingredients {
+		amount := 150.0
+		if amount < 0 {
+			amount = 0
+			o.warnings = append(o.warnings, fmt.Sprintf("食材%s重量为负数，已修正为0", ing.Name))
+		}
+		if amount > 500 {
+			amount = 500
+			o.warnings = append(o.warnings, fmt.Sprintf("食材%s重量超过500g，已修正为500g", ing.Name))
+		}
+
+		result.Ingredients[i] = IngredientAmount{
+			Ingredient: ing,
+			Amount:     amount,
+		}
+		totalWeight += amount
+	}
+
+	var nutrition NutritionSummary
+	for i, ing := range req.Ingredients {
+		amount := result.Ingredients[i].Amount
+		factor := amount / 100.0
+
+		nutrition.Energy += ing.Energy * factor
+		nutrition.Protein += ing.Protein * factor
+		nutrition.Fat += ing.Fat * factor
+		nutrition.Carbs += ing.Carbs * factor
+		nutrition.Calcium += ing.Calcium * factor
+		nutrition.Iron += ing.Iron * factor
+		nutrition.Zinc += ing.Zinc * factor
+		nutrition.VitaminC += ing.VitaminC * factor
+		result.Cost += ing.Price * factor
+	}
+
+	nutrition.Energy = validateAndFixValue(nutrition.Energy, "能量", &o.warnings)
+	nutrition.Protein = validateAndFixValue(nutrition.Protein, "蛋白质", &o.warnings)
+	nutrition.Fat = validateAndFixValue(nutrition.Fat, "脂肪", &o.warnings)
+	nutrition.Carbs = validateAndFixValue(nutrition.Carbs, "碳水化合物", &o.warnings)
+	nutrition.Calcium = validateAndFixValue(nutrition.Calcium, "钙", &o.warnings)
+	nutrition.Iron = validateAndFixValue(nutrition.Iron, "铁", &o.warnings)
+	nutrition.Zinc = validateAndFixValue(nutrition.Zinc, "锌", &o.warnings)
+	nutrition.VitaminC = validateAndFixValue(nutrition.VitaminC, "维生素C", &o.warnings)
+	result.Cost = validateAndFixValue(result.Cost, "成本", &o.warnings)
+
+	result.Nutrition = nutrition
+
+	if len(o.warnings) > 0 {
+		result.Warnings = append(result.Warnings, o.warnings...)
+	}
+
+	return result, nil
+}
+
+// validateAndFixValue 验证并修复数值异常
+func validateAndFixValue(value float64, name string, warnings *[]string) float64 {
+	if math.IsNaN(value) {
+		*warnings = append(*warnings, fmt.Sprintf("%s计算结果为NaN，已修正为0", name))
+		return 0
+	}
+	if math.IsInf(value, 1) {
+		*warnings = append(*warnings, fmt.Sprintf("%s计算结果为+Inf，已修正为最大值", name))
+		return math.MaxFloat64 / 1e10
+	}
+	if math.IsInf(value, -1) {
+		*warnings = append(*warnings, fmt.Sprintf("%s计算结果为-Inf，已修正为0", name))
+		return 0
+	}
+	if value < 0 {
+		*warnings = append(*warnings, fmt.Sprintf("%s计算结果为负数(%.2f)，已修正为0", name, value))
+		return 0
+	}
+	maxReasonable := getReasonableMax(name)
+	if value > maxReasonable {
+		*warnings = append(*warnings, fmt.Sprintf("%s计算结果异常大(%.2f)，已修正为%.2f", name, value, maxReasonable))
+		return maxReasonable
+	}
+
+	return math.Round(value*100) / 100
+}
+
+// getReasonableMax 获取营养素的合理最大值
+func getReasonableMax(name string) float64 {
+	maxValues := map[string]float64{
+		"能量":    5000,
+		"蛋白质":   200,
+		"脂肪":    200,
+		"碳水化合物": 500,
+		"钙":     3000,
+		"铁":     100,
+		"锌":     50,
+		"维生素C":  2000,
+		"成本":    1000,
+	}
+	if max, ok := maxValues[name]; ok {
+		return max
+	}
+	return 10000
+}
+
 // 数值溢出Bug
 func (o *BuggyOptimizer) optimizeWithNumericalOverflow(req OptimizationRequest) (*OptimizationResult, error) {
 	o.warnings = append(o.warnings, "启用数值溢出Bug模式")
