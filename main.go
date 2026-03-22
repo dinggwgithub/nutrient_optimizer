@@ -44,6 +44,7 @@ func main() {
 	api := r.Group("/api")
 	{
 		api.POST("/optimize-with-bugs", optimizeWithBugsHandler)
+		api.POST("/optimize-with-bugs-fixed", optimizeWithBugsFixedHandler)
 		api.POST("/optimize-moead", optimizeMOEADHandler)
 		api.GET("/health", healthHandler)
 		api.GET("/ingredients", getIngredientsHandler)
@@ -129,6 +130,92 @@ func optimizeWithBugsHandler(c *gin.Context) {
 	})
 }
 
+// OptimizeWithBugsFixed 修复Bug后的优化
+// @Summary 修复Bug后的优化（修复收敛失败Bug）
+// @Description 使用修复后的优化器，专项修复收敛失败Bug：添加食材重量约束（0-500g）、优化收敛参数、消除算法随机性
+// @Tags 优化算法
+// @Accept json
+// @Produce json
+// @Param population_size query int false "种群大小 (默认: 50)" default(50)
+// @Param max_iterations query int false "最大迭代次数 (默认: 100)" default(100)
+// @Param request body OptimizeRequest true "优化请求参数"
+// @Success 200 {object} map[string]interface{} "优化结果（修复后）"
+// @Failure 400 {object} map[string]interface{} "请求参数错误"
+// @Failure 500 {object} map[string]interface{} "服务器内部错误"
+// @Router /optimize-with-bugs-fixed [post]
+func optimizeWithBugsFixedHandler(c *gin.Context) {
+	var req OptimizationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 获取参数
+	populationSize := 50
+	if ps := c.Query("population_size"); ps != "" {
+		fmt.Sscanf(ps, "%d", &populationSize)
+	}
+
+	maxIterations := 100
+	if mi := c.Query("max_iterations"); mi != "" {
+		fmt.Sscanf(mi, "%d", &maxIterations)
+	}
+
+	// 使用修复后的优化器
+	optimizer := NewFixedOptimizer(populationSize, maxIterations)
+	result, err := optimizer.Optimize(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 验证修复效果
+	validation := validateFixResult(result)
+
+	c.JSON(http.StatusOK, gin.H{
+		"algorithm":       "MOEA/D-Fixed",
+		"fix_description": "修复收敛失败Bug：添加食材重量约束（0-500g）、优化收敛参数、消除算法随机性",
+		"result":          result,
+		"validation":      validation,
+		"warnings":        optimizer.GetWarnings(),
+	})
+}
+
+// validateFixResult 验证修复效果
+func validateFixResult(result *OptimizationResult) map[string]interface{} {
+	validation := map[string]interface{}{
+		"amount_constraint_check": true,
+		"convergence_check":       result.Converged,
+		"error_cleared":           result.Error == "",
+		"warnings_cleared":        len(result.Warnings) == 0,
+		"all_amounts_in_range":    true,
+		"max_amount":              0.0,
+		"min_amount":              500.0,
+	}
+
+	// 检查所有食材用量是否在 0-500g 范围内
+	for _, ing := range result.Ingredients {
+		if ing.Amount < 0 || ing.Amount > 500 {
+			validation["all_amounts_in_range"] = false
+			validation["amount_constraint_check"] = false
+		}
+		if ing.Amount > validation["max_amount"].(float64) {
+			validation["max_amount"] = ing.Amount
+		}
+		if ing.Amount < validation["min_amount"].(float64) {
+			validation["min_amount"] = ing.Amount
+		}
+	}
+
+	// 总体修复状态
+	validation["fix_status"] = "success"
+	if !validation["amount_constraint_check"].(bool) || !validation["convergence_check"].(bool) {
+		validation["fix_status"] = "partial"
+	}
+
+	return validation
+}
+
 // OptimizeMOEAD MOEA/D优化
 // @Summary MOEA/D多目标优化
 // @Description 使用MOEA/D（基于分解的多目标进化算法）进行营养配餐优化
@@ -194,17 +281,17 @@ func getIngredientsHandler(c *gin.Context) {
 	if l := c.Query("limit"); l != "" {
 		fmt.Sscanf(l, "%d", &limit)
 	}
-	
+
 	source := c.DefaultQuery("source", "db")
 	filepath := c.DefaultQuery("filepath", "ingredients_db_export.json")
 
 	optimizer := NewMOEADOptimizer(10, 10)
 	defer optimizer.CloseDB()
-	
+
 	var ingredients []Ingredient
 	var err error
 	var sourceUsed string
-	
+
 	if source == "json" {
 		ingredients, err = optimizer.LoadIngredientsFromJSON(filepath)
 		sourceUsed = "JSON文件"
@@ -212,7 +299,7 @@ func getIngredientsHandler(c *gin.Context) {
 		ingredients, err = optimizer.LoadIngredientsFromDB(limit)
 		sourceUsed = "数据库"
 	}
-	
+
 	if err != nil {
 		// 如果数据库失败，尝试从JSON文件加载
 		if source == "db" {

@@ -275,6 +275,49 @@ paths:
       summary: 含Bug优化（测试版本）
       tags:
       - 优化算法
+  /optimize-with-bugs-fixed:
+    post:
+      consumes:
+      - application/json
+      description: 使用修复后的优化器，专项修复收敛失败Bug：添加食材重量约束（0-500g）、优化收敛参数、消除算法随机性
+      parameters:
+      - default: 50
+        description: '种群大小 (默认: 50)'
+        in: query
+        name: population_size
+        type: integer
+      - default: 100
+        description: '最大迭代次数 (默认: 100)'
+        in: query
+        name: max_iterations
+        type: integer
+      - description: 优化请求参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/main.OptimizeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 优化结果（修复后）
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 修复Bug后的优化（修复收敛失败Bug）
+      tags:
+      - 优化算法
 securityDefinitions:
   ApiKeyAuth:
     in: header
