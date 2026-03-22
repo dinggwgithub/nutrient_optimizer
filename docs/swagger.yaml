@@ -1,0 +1,285 @@
+basePath: /api
+definitions:
+  main.Constraint:
+    description: 优化过程中的约束条件
+    properties:
+      ingredient_id:
+        example: 1
+        type: integer
+      type:
+        description: '"ingredient_min", "ingredient_max", "total_weight"'
+        example: ingredient_min
+        type: string
+      value:
+        example: 50
+        type: number
+    type: object
+  main.Ingredient:
+    description: 食材的营养成分信息
+    properties:
+      calcium:
+        description: 钙 (mg/100g)
+        example: 11
+        type: number
+      carbs:
+        description: 碳水化合物 (g/100g)
+        example: 0
+        type: number
+      energy:
+        description: 能量 (kcal/100g)
+        example: 165
+        type: number
+      fat:
+        description: 脂肪 (g/100g)
+        example: 3.6
+        type: number
+      id:
+        example: 1
+        type: integer
+      iron:
+        description: 铁 (mg/100g)
+        example: 1
+        type: number
+      name:
+        example: 鸡胸肉
+        type: string
+      price:
+        description: 价格 (元/100g)
+        example: 0.8
+        type: number
+      protein:
+        description: 蛋白质 (g/100g)
+        example: 31
+        type: number
+      vitamin_c:
+        description: 维生素C (mg/100g)
+        example: 0
+        type: number
+      zinc:
+        description: 锌 (mg/100g)
+        example: 0.7
+        type: number
+    type: object
+  main.NutritionGoal:
+    description: 营养素的优化目标
+    properties:
+      max:
+        description: 最大值
+        example: 700
+        type: number
+      min:
+        description: 最小值
+        example: 500
+        type: number
+      nutrient:
+        description: 营养素名称
+        example: energy
+        type: string
+      target:
+        description: 目标值
+        example: 600
+        type: number
+      weight:
+        description: 权重
+        example: 0.3
+        type: number
+    type: object
+  main.OptimizeRequest:
+    properties:
+      constraints:
+        items:
+          $ref: '#/definitions/main.Constraint'
+        type: array
+      ingredients:
+        items:
+          $ref: '#/definitions/main.Ingredient'
+        type: array
+      max_iterations:
+        type: integer
+      nutrition_goals:
+        items:
+          $ref: '#/definitions/main.NutritionGoal'
+        type: array
+      tolerance:
+        type: number
+      weights:
+        items:
+          $ref: '#/definitions/main.Weight'
+        type: array
+    type: object
+  main.Weight:
+    description: 多目标优化的权重配置
+    properties:
+      type:
+        description: '"nutrition", "cost", "variety"'
+        example: nutrition
+        type: string
+      value:
+        example: 0.6
+        type: number
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: support@swagger.io
+    name: API Support
+    url: http://www.swagger.io/support
+  description: 营养配餐优化请求参数
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  termsOfService: http://swagger.io/terms/
+  title: 营养配餐多目标优化算法API
+  version: "1.0"
+paths:
+  /health:
+    get:
+      consumes:
+      - application/json
+      description: 检查服务是否正常运行
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 服务状态
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 健康检查
+      tags:
+      - 系统
+  /ingredients:
+    get:
+      consumes:
+      - application/json
+      description: 从数据库或JSON文件获取可用的食材列表
+      parameters:
+      - default: db
+        description: '数据源 (db或json, 默认: db)'
+        enum:
+        - db
+        - json
+        in: query
+        name: source
+        type: string
+      - default: 20
+        description: '返回数量限制 (默认: 20)'
+        in: query
+        name: limit
+        type: integer
+      - default: ingredients_db_export.json
+        description: JSON文件路径 (source=json时使用)
+        in: query
+        name: filepath
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 食材列表
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 获取食材列表
+      tags:
+      - 食材管理
+  /optimize-moead:
+    post:
+      consumes:
+      - application/json
+      description: 使用MOEA/D（基于分解的多目标进化算法）进行营养配餐优化
+      parameters:
+      - default: 50
+        description: '种群大小 (默认: 50)'
+        in: query
+        name: population_size
+        type: integer
+      - default: 100
+        description: '最大迭代次数 (默认: 100)'
+        in: query
+        name: max_iterations
+        type: integer
+      - description: 优化请求参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/main.OptimizeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 优化结果
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      summary: MOEA/D多目标优化
+      tags:
+      - 优化算法
+  /optimize-with-bugs:
+    post:
+      consumes:
+      - application/json
+      description: 使用含Bug版本的优化器进行测试，用于复现特定类型的科学计算Bug
+      parameters:
+      - description: Bug类型
+        enum:
+        - precision_loss
+        - numerical_overflow
+        - constraint_violation
+        - convergence_failure
+        - result_instability
+        in: query
+        name: bug_type
+        required: true
+        type: string
+      - description: 优化请求参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/main.OptimizeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 优化结果（含Bug信息）
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 含Bug优化（测试版本）
+      tags:
+      - 优化算法
+securityDefinitions:
+  ApiKeyAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+  BasicAuth:
+    type: basic
+swagger: "2.0"
