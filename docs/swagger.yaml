@@ -1,5 +1,13 @@
 basePath: /api
 definitions:
+  main.ABTestRequest:
+    properties:
+      bug_type:
+        example: precision_loss
+        type: string
+      request:
+        $ref: '#/definitions/main.OptimizationRequest'
+    type: object
   main.Constraint:
     description: 优化过程中的约束条件
     properties:
@@ -84,6 +92,29 @@ definitions:
         example: 0.3
         type: number
     type: object
+  main.OptimizationRequest:
+    properties:
+      constraints:
+        items:
+          $ref: '#/definitions/main.Constraint'
+        type: array
+      ingredients:
+        items:
+          $ref: '#/definitions/main.Ingredient'
+        type: array
+      max_iterations:
+        type: integer
+      nutrition_goals:
+        items:
+          $ref: '#/definitions/main.NutritionGoal'
+        type: array
+      tolerance:
+        type: number
+      weights:
+        items:
+          $ref: '#/definitions/main.Weight'
+        type: array
+    type: object
   main.OptimizeRequest:
     properties:
       constraints:
@@ -132,6 +163,39 @@ info:
   title: 营养配餐多目标优化算法API
   version: "1.0"
 paths:
+  /ab-test:
+    post:
+      consumes:
+      - application/json
+      description: 对比Bug版本和修复版本的优化结果
+      parameters:
+      - description: A/B测试请求参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/main.ABTestRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: A/B测试结果
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      summary: A/B测试（Bug版本 vs 修复版本）
+      tags:
+      - 测试
   /health:
     get:
       consumes:
@@ -188,6 +252,39 @@ paths:
       summary: 获取食材列表
       tags:
       - 食材管理
+  /optimize-fixed:
+    post:
+      consumes:
+      - application/json
+      description: 使用修复后的优化器进行营养配餐优化，修复了数值计算错误
+      parameters:
+      - description: 优化请求参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/main.OptimizeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 优化结果
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 修复后优化（无Bug版本）
+      tags:
+      - 优化算法
   /optimize-moead:
     post:
       consumes:
