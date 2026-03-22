@@ -18,6 +18,55 @@
     "host": "localhost:8080",
     "basePath": "/api",
     "paths": {
+        "/ab-test-numerical-overflow": {
+            "post": {
+                "description": "对比原始Bug版本和修复版本的输出差异，输出A/B测试对比数据",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "优化算法"
+                ],
+                "summary": "数值溢出Bug A/B测试",
+                "parameters": [
+                    {
+                        "description": "优化请求参数",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/main.OptimizeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "A/B测试对比结果",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "服务器内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/health": {
             "get": {
                 "description": "检查服务是否正常运行",
@@ -204,6 +253,65 @@
                 "responses": {
                     "200": {
                         "description": "优化结果（含Bug信息）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "服务器内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/optimize-with-bugs-fixed": {
+            "post": {
+                "description": "使用修复后的优化器进行数值溢出Bug修复，专门处理NaN/Inf/负数/超大值等异常输出",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "优化算法"
+                ],
+                "summary": "含Bug优化修复版本",
+                "parameters": [
+                    {
+                        "enum": [
+                            "numerical_overflow"
+                        ],
+                        "type": "string",
+                        "description": "Bug类型",
+                        "name": "bug_type",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "description": "优化请求参数",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/main.OptimizeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "修复后的优化结果",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
