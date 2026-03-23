@@ -52,16 +52,16 @@ go mod tidy
 ### 2. 启动服务
 
 ```bash
-# 仅原优化器
+# 仅原优化器（含Bug）
 go run main.go models.go buggy_optimizer.go
 
-# 完整服务（含MOEA/D）
-go run main.go models.go buggy_optimizer.go moead_optimizer.go
+# 完整服务（含MOEA/D + 修复版优化器，推荐）
+go run main.go models.go buggy_optimizer.go moead_optimizer.go fixed_optimizer.go
 
 # Swagger文档: http://localhost:8080/swagger/index.html
 ```
 
-#### ✅ 完整版本（含MOEA/D优化器，推荐）
+#### ✅ 完整版本（含MOEA/D + 修复版优化器，推荐）
 ### 3. 使用Swagger UI
 
 打开浏览器访问: `http://localhost:8080/swagger/index.html`
@@ -85,7 +85,19 @@ go run main.go models.go buggy_optimizer.go moead_optimizer.go
   - `population_size`: 种群大小（可选，默认: 50）
   - `max_iterations`: 最大迭代次数（可选，默认: 100）
 
-#### 5. 获取食材列表
+#### 5. 修复版优化接口 ✅
+- **路径**: `POST /api/optimize-with-bugs-fixed`
+- **描述**: 修复了结果不稳定和约束越界问题的优化器
+- **参数**:
+  - `population_size`: 种群大小（可选，默认: 50）
+  - `max_iterations`: 最大迭代次数（可选，默认: 100）
+- **修复特性**:
+  - ✅ 固定随机种子，确保同一参数多次调用结果一致
+  - ✅ 强制执行食材重量约束（0-500g范围内）
+  - ✅ 约束冲突预校验，避免无可行解情况
+  - ✅ 收敛状态稳定，无异常警告
+
+#### 6. 获取食材列表
 - **路径**: `GET /api/ingredients`
 - **参数**:
   - `source`: 数据源（可选，db或json，默认: db）
@@ -196,6 +208,74 @@ GET /api/ingredients?source=json&limit=20
 ### 5. 结果不稳定问题
 - **现象**: 同一参数多次运行结果不一致
 
+---
+
+## 🔧 Bug修复技术说明
+
+### 1. 算法随机种子固定方案
+**问题根源**: 
+原优化器使用 `rand.Seed(time.Now().UnixNano())` 作为随机种子，导致每次运行结果不同。
+
+**修复方案**:
+```go
+// FixedOptimizer 使用固定随机种子42，确保结果可重复
+type FixedOptimizer struct {
+    randomSeed int64 // = 42，固定随机种子
+    // ...
+}
+
+// 在所有随机操作中使用独立的随机数生成器
+rng := rand.New(rand.NewSource(o.randomSeed + int64(generation)))
+```
+
+**技术细节**:
+- 种子值：使用固定值 `42`（银河系漫游指南中"生命、宇宙以及任何事情的终极答案"）
+- 确定性：同一输入参数永远产生相同输出
+- 可重复性：便于调试和测试
+
+### 2. 食材重量约束规则（0-500g）
+**约束层级**:
+```
+┌─────────────────────────────────────────────────┐
+│ 约束优先级（从高到低）                           │
+├─────────────────────────────────────────────────┤
+│ 1. 用户指定约束（如：ingredient_min = 100g）     │
+│ 2. 通用边界约束（0g ≤ 用量 ≤ 500g）              │
+│ 3. 总重量约束（如：total_weight = 400g）         │
+└─────────────────────────────────────────────────┘
+```
+
+**执行步骤**:
+1. **初始化阶段**：创建个体时即在约束范围内随机生成用量
+2. **变异操作后**：立即进行边界检查和裁剪
+3. **归一化阶段**：在调整未约束食材用量时保持约束食材用量不变
+4. **最终校验**：算法结束前进行最终边界检查
+
+### 3. 营养素目标约束校验逻辑
+**预校验流程**:
+```
+开始
+  ↓
+检查是否存在食材约束冲突
+（如 min > max）
+  ↓
+计算最小可能总重量
+（所有食材取最小值之和）
+  ↓
+计算最大可能总重量
+（所有食材取最大值之和）
+  ↓
+验证目标总重量是否在可行范围内
+  ├─ 是 → 继续执行优化
+  └─ 否 → 发出警告信息（但继续执行）
+结束
+```
+
+**设计原则**:
+- 容错性：约束冲突时继续执行，不直接返回错误
+- 用户体验：通过 `warnings` 字段反馈潜在问题
+- 自愈能力：算法内部尝试寻找可行解
+
 ## 数据存储
 
 项目使用JSON文件存储数据，无需数据库配置：
@@ -264,13 +344,16 @@ go test -v ./...
 
 # 仅运行MOEA/D优化器测试
 go test -v -run MOEAD
+
+# 仅运行Bug修复相关测试 ✅
+go test -v -run FixedOptimizer
 ```
 
 ### 启动服务
 
 ```bash
-# 启动完整服务
-go run main.go models.go buggy_optimizer.go moead_optimizer.go
+# 启动完整服务（含修复版优化器）
+go run main.go models.go buggy_optimizer.go moead_optimizer.go fixed_optimizer.go
 
 # 在浏览器中打开Swagger UI
 open http://localhost:8080/swagger/index.html

@@ -231,6 +231,69 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/optimize-with-bugs-fixed": {
+            "post": {
+                "description": "使用修复后的优化器进行营养配餐优化，解决了结果不稳定和约束越界问题",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "优化算法"
+                ],
+                "summary": "修复Bug的优化（正式版本）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 50,
+                        "description": "种群大小 (默认: 50)",
+                        "name": "population_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 100,
+                        "description": "最大迭代次数 (默认: 100)",
+                        "name": "max_iterations",
+                        "in": "query"
+                    },
+                    {
+                        "description": "优化请求参数",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/main.OptimizeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "优化结果（已修复Bug）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "服务器内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
