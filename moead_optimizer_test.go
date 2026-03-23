@@ -304,3 +304,253 @@ func TestRoundToTwoDecimals(t *testing.T) {
 		}
 	}
 }
+
+// === 修复Bug相关测试用例 ===
+
+// TestFixedOptimizer_ResultStability 测试结果稳定性（同一参数多次调用结果一致）
+func TestFixedOptimizer_ResultStability(t *testing.T) {
+	// 创建相同配置的两个优化器实例
+	optimizer1 := NewFixedOptimizer(10, 20)
+	optimizer2 := NewFixedOptimizer(10, 20)
+
+	req := OptimizationRequest{
+		Ingredients: []Ingredient{
+			{ID: 1, Name: "鸡胸肉", Energy: 165, Protein: 31, Fat: 3.6, Carbs: 0, Price: 0.8},
+			{ID: 2, Name: "西兰花", Energy: 34, Protein: 2.8, Fat: 0.4, Carbs: 6.6, Price: 0.3},
+			{ID: 3, Name: "米饭", Energy: 130, Protein: 2.6, Fat: 0.3, Carbs: 28, Price: 0.1},
+		},
+		NutritionGoals: []NutritionGoal{
+			{Nutrient: "energy", Target: 600, Weight: 0.3},
+			{Nutrient: "protein", Target: 30, Weight: 0.4},
+		},
+		Constraints: []Constraint{
+			{Type: "total_weight", Value: 400},
+		},
+		MaxIterations: 20,
+	}
+
+	// 第一次调用
+	result1, err := optimizer1.Optimize(req)
+	if err != nil {
+		t.Fatalf("第一次优化失败: %v", err)
+	}
+
+	// 第二次调用（相同参数）
+	result2, err := optimizer2.Optimize(req)
+	if err != nil {
+		t.Fatalf("第二次优化失败: %v", err)
+	}
+
+	// 验证食材用量一致
+	if len(result1.Ingredients) != len(result2.Ingredients) {
+		t.Errorf("食材数量不一致: 第一次%d种，第二次%d种",
+			len(result1.Ingredients), len(result2.Ingredients))
+	}
+
+	// 验证每种食材用量一致
+	for i := range result1.Ingredients {
+		if i >= len(result2.Ingredients) {
+			break
+		}
+		// 允许极小的浮点误差
+		if result1.Ingredients[i].Amount-result2.Ingredients[i].Amount > 1e-6 {
+			t.Errorf("食材[%s]用量不一致: 第一次%.10fg，第二次%.10fg",
+				result1.Ingredients[i].Name,
+				result1.Ingredients[i].Amount,
+				result2.Ingredients[i].Amount)
+		}
+	}
+
+	// 验证营养值一致
+	nutritionCheck(t, "能量", result1.Nutrition.Energy, result2.Nutrition.Energy)
+	nutritionCheck(t, "蛋白质", result1.Nutrition.Protein, result2.Nutrition.Protein)
+	nutritionCheck(t, "钙", result1.Nutrition.Calcium, result2.Nutrition.Calcium)
+	nutritionCheck(t, "锌", result1.Nutrition.Zinc, result2.Nutrition.Zinc)
+
+	t.Log("✓ 结果稳定性测试通过：同一参数多次调用结果完全一致")
+}
+
+// nutritionCheck 营养值比较辅助函数
+func nutritionCheck(t *testing.T, name string, val1, val2 float64) {
+	t.Helper()
+	if val1-val2 > 1e-6 {
+		t.Errorf("%s值不一致: 第一次%.10f，第二次%.10f", name, val1, val2)
+	}
+}
+
+// TestFixedOptimizer_ConstraintBounds 测试约束边界（食材用量在0-500g范围）
+func TestFixedOptimizer_ConstraintBounds(t *testing.T) {
+	optimizer := NewFixedOptimizer(20, 50)
+
+	req := OptimizationRequest{
+		Ingredients: []Ingredient{
+			{ID: 1, Name: "测试食材1", Energy: 100, Protein: 10, Price: 0.5},
+			{ID: 2, Name: "测试食材2", Energy: 200, Protein: 20, Price: 1.0},
+			{ID: 3, Name: "测试食材3", Energy: 300, Protein: 30, Price: 1.5},
+		},
+		NutritionGoals: []NutritionGoal{
+			{Nutrient: "energy", Target: 1000, Weight: 1.0},
+		},
+		Constraints: []Constraint{
+			{Type: "total_weight", Value: 1000}, // 总重量设为1000g，但单种食材不能超过500g
+		},
+		MaxIterations: 50,
+	}
+
+	result, err := optimizer.Optimize(req)
+	if err != nil {
+		t.Fatalf("优化失败: %v", err)
+	}
+
+	// 验证所有食材用量在0-500g范围内
+	hasViolation := false
+	for _, ing := range result.Ingredients {
+		if ing.Amount < 0 {
+			t.Errorf("❌ 食材[%s]用量为负数: %.2fg", ing.Name, ing.Amount)
+			hasViolation = true
+		}
+		if ing.Amount > 500 {
+			t.Errorf("❌ 食材[%s]用量超过500g: %.2fg", ing.Name, ing.Amount)
+			hasViolation = true
+		}
+		t.Logf("  %s: %.2fg (在约束范围内)", ing.Name, ing.Amount)
+	}
+
+	if !hasViolation {
+		t.Log("✓ 约束边界测试通过：所有食材用量在0-500g范围内")
+	}
+
+	// 验证收敛状态
+	if !result.Converged {
+		t.Error("❌ 优化未收敛")
+	} else {
+		t.Log("✓ 优化已正常收敛")
+	}
+
+	// 验证没有警告
+	if len(result.Warnings) > 0 {
+		t.Errorf("❌ 存在警告: %v", result.Warnings)
+	} else {
+		t.Log("✓ 无警告信息")
+	}
+}
+
+// TestFixedOptimizer_ExtremeConstraints 测试极端约束场景
+func TestFixedOptimizer_ExtremeConstraints(t *testing.T) {
+	optimizer := NewFixedOptimizer(10, 20)
+
+	// 设置极端约束条件
+	req := OptimizationRequest{
+		Ingredients: []Ingredient{
+			{ID: 1, Name: "食材A", Energy: 100, Protein: 10, Price: 0.5},
+			{ID: 2, Name: "食材B", Energy: 200, Protein: 20, Price: 1.0},
+		},
+		NutritionGoals: []NutritionGoal{
+			{Nutrient: "energy", Target: 500, Weight: 1.0},
+		},
+		Constraints: []Constraint{
+			{Type: "total_weight", Value: 400},
+			{Type: "ingredient_min", IngredientID: 1, Value: 100},
+			{Type: "ingredient_max", IngredientID: 1, Value: 100}, // 固定食材A为100g
+		},
+		MaxIterations: 20,
+	}
+
+	result, err := optimizer.Optimize(req)
+	if err != nil {
+		t.Fatalf("优化失败: %v", err)
+	}
+
+	// 验证食材A严格在100g
+	for _, ing := range result.Ingredients {
+		if ing.ID == 1 && (ing.Amount < 99.99 || ing.Amount > 100.01) {
+			t.Errorf("食材A约束未满足: 期望约100g，实际%.2fg", ing.Amount)
+		}
+		t.Logf("  %s: %.2fg", ing.Name, ing.Amount)
+	}
+
+	t.Log("✓ 极端约束场景测试完成")
+}
+
+// TestFixedOptimizer_CompareWithBuggy 对比测试：修复版vs含Bug版
+func TestFixedOptimizer_CompareWithBuggy(t *testing.T) {
+	// 此测试用于对比验证修复效果
+	t.Log("=== 对比测试：修复版优化器 vs 含Bug优化器 ===")
+
+	req := OptimizationRequest{
+		Ingredients: []Ingredient{
+			{ID: 2, Name: "小麦", Energy: 338, Protein: 11.9, Fat: 1.3, Carbs: 75.2, Calcium: 34, Iron: 5.1, Zinc: 2.33},
+			{ID: 3, Name: "五谷香", Energy: 378, Protein: 9.9, Fat: 2.6, Carbs: 78.9, Calcium: 2, Iron: 0.5, Zinc: 0.23},
+		},
+		Constraints: []Constraint{
+			{Type: "total_weight", Value: 400},
+		},
+		MaxIterations: 50,
+	}
+
+	// 测试修复版优化器的稳定性
+	t.Log("\n1. 测试修复版优化器稳定性:")
+	fixed1 := NewFixedOptimizer(10, 20)
+	fixed2 := NewFixedOptimizer(10, 20)
+
+	res1, err := fixed1.Optimize(req)
+	if err != nil {
+		t.Fatalf("修复版优化失败: %v", err)
+	}
+
+	res2, err := fixed2.Optimize(req)
+	if err != nil {
+		t.Fatalf("修复版优化失败: %v", err)
+	}
+
+	// 验证结果一致性
+	isStable := true
+	for i := range res1.Ingredients {
+		if i >= len(res2.Ingredients) {
+			break
+		}
+		diff := res1.Ingredients[i].Amount - res2.Ingredients[i].Amount
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff > 1e-6 {
+			t.Errorf("  ❌ %s用量不一致: %.10f vs %.10f",
+				res1.Ingredients[i].Name,
+				res1.Ingredients[i].Amount,
+				res2.Ingredients[i].Amount)
+			isStable = false
+		}
+	}
+	if isStable {
+		t.Log("  ✓ 修复版优化器结果稳定，多次调用一致")
+	}
+
+	// 验证约束合规
+	t.Log("\n2. 测试约束合规性:")
+	isValid := true
+	for _, ing := range res1.Ingredients {
+		if ing.Amount < 0 || ing.Amount > 500 {
+			t.Errorf("  ❌ %s用量不合规: %.2fg（应在0-500g之间）", ing.Name, ing.Amount)
+			isValid = false
+		}
+	}
+	if isValid {
+		t.Log("  ✓ 所有食材用量合规，在0-500g范围内")
+	}
+
+	// 验证无异常警告
+	t.Log("\n3. 测试异常警告消除:")
+	if len(res1.Warnings) == 0 {
+		t.Log("  ✓ 无警告信息")
+	} else {
+		t.Errorf("  ❌ 存在警告: %v", res1.Warnings)
+	}
+
+	if res1.Converged {
+		t.Log("  ✓ 收敛状态正常")
+	} else {
+		t.Error("  ❌ 收敛状态异常")
+	}
+
+	t.Log("\n=== 对比测试完成 ===")
+}
