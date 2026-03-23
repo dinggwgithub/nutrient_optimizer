@@ -275,6 +275,39 @@ paths:
       summary: 含Bug优化（测试版本）
       tags:
       - 优化算法
+  /optimize-with-bugs-fixed:
+    post:
+      consumes:
+      - application/json
+      description: 使用修复后的优化器，解决结果不稳定和约束越界两类核心Bug
+      parameters:
+      - description: 优化请求参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/main.OptimizeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 优化结果（已修复Bug）
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 修复后的优化（Bug修复版本）
+      tags:
+      - 优化算法
 securityDefinitions:
   ApiKeyAuth:
     in: header

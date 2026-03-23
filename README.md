@@ -85,7 +85,14 @@ go run main.go models.go buggy_optimizer.go moead_optimizer.go
   - `population_size`: 种群大小（可选，默认: 50）
   - `max_iterations`: 最大迭代次数（可选，默认: 100）
 
-#### 5. 获取食材列表
+#### 5. 修复后的优化（Bug修复版本）
+- **路径**: `POST /api/optimize-with-bugs-fixed`
+- **描述**: 解决结果不稳定和约束越界两类核心Bug的修复版本
+- **修复内容**:
+  - 结果稳定性：使用固定随机种子(42)，确保相同输入多次调用结果一致
+  - 约束合规：食材用量限制在0-500g区间，消除负数和超大值
+
+#### 6. 获取食材列表
 - **路径**: `GET /api/ingredients`
 - **参数**:
   - `source`: 数据源（可选，db或json，默认: db）
@@ -196,6 +203,101 @@ GET /api/ingredients?source=json&limit=20
 ### 5. 结果不稳定问题
 - **现象**: 同一参数多次运行结果不一致
 
+## Bug修复方案
+
+### 结果稳定性修复
+
+**问题原因**: 使用`time.Now().UnixNano()`作为随机种子，每次运行种子不同导致结果不一致。
+
+**修复方案**: 使用固定随机种子(42)，确保相同输入多次调用返回完全一致的结果。
+
+```go
+const FixedRandomSeed int64 = 42
+
+func (o *FixedOptimizer) Optimize(req OptimizationRequest) (*OptimizationResult, error) {
+    rand.Seed(FixedRandomSeed)  // 固定随机种子
+    // ...
+}
+```
+
+### 约束越界修复
+
+**问题原因**: 优化过程中未对食材用量进行边界约束，导致出现负数或超大值。
+
+**修复方案**: 使用`clampAmount`函数强制限制食材用量在0-500g区间。
+
+```go
+const (
+    MinIngredientAmount float64 = 0     // 最小用量
+    MaxIngredientAmount float64 = 500   // 最大用量
+)
+
+func (o *FixedOptimizer) clampAmount(amount float64) float64 {
+    return math.Max(MinIngredientAmount, math.Min(MaxIngredientAmount, amount))
+}
+```
+
+### 食材重量约束规则
+
+| 约束类型 | 说明 | 默认值 |
+|---------|------|--------|
+| 最小用量 | 单个食材最小用量 | 0g |
+| 最大用量 | 单个食材最大用量 | 500g |
+| 总重量 | 所有食材总重量 | 300g |
+
+### 营养素目标约束校验逻辑
+
+```go
+// 营养素目标校验
+for _, goal := range req.NutritionGoals {
+    if goal.Min > 0 && actual < goal.Min {
+        // 添加警告：低于最小目标
+    }
+    if goal.Max > 0 && actual > goal.Max {
+        // 添加警告：超过最大目标
+    }
+}
+```
+
+## A/B测试验证
+
+### 测试用例1: 结果稳定性测试
+
+```bash
+# 多次调用含Bug版本（结果不一致）
+curl -X POST 'http://localhost:8080/api/optimize-with-bugs?bug_type=result_instability' \
+  -H 'Content-Type: application/json' \
+  -d '{"count": 2, "ingredients": [...]}'
+
+# 多次调用修复版本（结果一致）
+curl -X POST 'http://localhost:8080/api/optimize-with-bugs-fixed' \
+  -H 'Content-Type: application/json' \
+  -d '{"count": 2, "ingredients": [...]}'
+```
+
+### 测试用例2: 约束边界测试
+
+```bash
+# 含Bug版本（可能出现负数/超大值）
+curl -X POST 'http://localhost:8080/api/optimize-with-bugs?bug_type=constraint_violation' \
+  -H 'Content-Type: application/json' \
+  -d '{"ingredients": [...]}'
+
+# 修复版本（用量在0-500g区间）
+curl -X POST 'http://localhost:8080/api/optimize-with-bugs-fixed' \
+  -H 'Content-Type: application/json' \
+  -d '{"ingredients": [...]}'
+```
+
+### 验证标准
+
+| 指标 | 含Bug版本 | 修复版本 |
+|-----|----------|---------|
+| 结果稳定性 | 多次调用结果不一致 | 多次调用结果完全一致 |
+| 食材用量 | 可能出现负数或超大值 | 严格限制在0-500g区间 |
+| 警告信息 | 包含约束越界警告 | 警告字段清空或仅含营养提示 |
+| 收敛状态 | 可能不稳定 | converged=true稳定 |
+
 ## 数据存储
 
 项目使用JSON文件存储数据，无需数据库配置：
@@ -270,7 +372,7 @@ go test -v -run MOEAD
 
 ```bash
 # 启动完整服务
-go run main.go models.go buggy_optimizer.go moead_optimizer.go
+go run main.go models.go buggy_optimizer.go moead_optimizer.go fixed_optimizer.go
 
 # 在浏览器中打开Swagger UI
 open http://localhost:8080/swagger/index.html
